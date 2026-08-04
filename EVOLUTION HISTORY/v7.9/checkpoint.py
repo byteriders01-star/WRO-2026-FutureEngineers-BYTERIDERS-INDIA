@@ -98,23 +98,26 @@ class CheckpointManager:
             )
 
     def _distance_to_section(self, pose, section):
-        sx, sy = section.waypoints[0]
-        dx = pose.x - sx
-        dy = pose.y - sy
-        return math.hypot(dx, dy)
+    x1, y1 = section.waypoints[0]
+    x2, y2 = section.waypoints[-1]
 
-    def _distance_to_section_end(self, pose, section):
-        ex, ey = section.waypoints[-1]
-        dx = ex - pose.x
-        dy = ey - pose.y
-        return math.hypot(dx, dy)
+    dx = x2 - x1
+    dy = y2 - y1
 
-    def _find_next_section(self, current_id):
-        next_id = current_id + 1
-        for section in self.sections:
-            if section.id == next_id:
-                return section
-        return None
+    if dx == 0 and dy == 0:
+        return math.hypot(pose.x - x1, pose.y - y1)
+
+    t = (
+        ((pose.x - x1) * dx + (pose.y - y1) * dy)
+        / (dx * dx + dy * dy)
+    )
+
+    t = max(0.0, min(1.0, t))
+
+    proj_x = x1 + t * dx
+    proj_y = y1 + t * dy
+
+    return math.hypot(pose.x - proj_x, pose.y - proj_y)
 
     def _do_transition(self, next_section, pose):
         prev = self._current_section
@@ -129,26 +132,31 @@ class CheckpointManager:
         )
 
     def _lap_completed(self, pose):
-        self._lap_count += 1
-        self._current_section = self.sections[0]
-        self._section_history.clear()
-        self.logger.info(
-            f"Lap {self._lap_count} completed. "
-            f"Restarting section tracking."
-        )
+    self._lap_count += 1
+    self._current_section = self.sections[0]
+    self._section_history = [self.sections[0].id]
+    self._transition_pose = Pose(pose.x, pose.y, pose.yaw)
+    self._last_transition_time = time.monotonic()
+
+    self.logger.info(
+        f"Lap {self._lap_count} completed. "
+        f"Restarting section tracking."
+    )
 
     def _validate_transition(self, pose):
-        elapsed = time.monotonic() - self._last_transition_time
-        if elapsed > self.transition_timeout:
-            dx = pose.x - self._transition_pose.x
-            dy = pose.y - self._transition_pose.y
-            distance = math.hypot(dx, dy)
-            if distance < self.validation_distance:
-                self.logger.warning(
-                    f"Section {self._current_section.id} entered but "
-                    f"only moved {distance:.2f}m in {elapsed:.1f}s"
-                )
+    elapsed = time.monotonic() - self._last_transition_time
 
+    if elapsed > self.transition_timeout:
+        dx = pose.x - self._transition_pose.x
+        dy = pose.y - self._transition_pose.y
+        distance = math.hypot(dx, dy)
+
+        if distance < self.validation_distance:
+            self.logger.warning(
+                f"Section {self._current_section.id} entered but "
+                f"robot only moved {distance:.2f}m in "
+                f"{elapsed:.1f}s. Possible skipped section."
+            )
     def get_current_section(self):
         return self._current_section
 

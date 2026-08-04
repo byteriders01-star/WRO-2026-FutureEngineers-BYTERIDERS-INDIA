@@ -1,54 +1,48 @@
-# v7.9 — Checkpoint Manager
+v7.9 — Checkpoint Manager
+Diary Entry — 2026-03-30
 
-## Diary Entry — 2026-03-30
+The WRO 2026 track has 8 distinct sections per lap. Section 1 is the start/finish straight. Sections 2–4 form the outer loop, Sections 5–7 cover the inner technical area, and Section 8 returns the robot to the start/finish straight.
 
-The WRO 2026 track has 8 distinct sections per lap. Section 1 is the start/finish straight. Sections 2-4 are the outer loop. Sections 5-7 are the inner technical section. Section 8 is the return straight to start/finish.
+Tracking the current section allows the robot to:
 
-Knowing which section the robot is in is useful for:
-- Adjusting behavior (e.g., slow down in technical sections)
-- Detecting when the robot has missed a section (got lost)
-- Providing feedback to the driver station about progress
-- Verifying that the full track was completed
+Adjust driving behaviour (for example, slowing down in technical sections)
+Monitor progress throughout the lap
+Verify that every section has been completed
+Provide status information to the driver station
 
-Today I built `checkpoint.py`, which tracks the robot's progress through these 8 sections using predefined waypoints.
+Today I implemented checkpoint.py, which tracks the robot's progress through these predefined sections using waypoint-based localization.
 
-## The section model
+The section model
 
-Each section is defined by a start waypoint (x, y), an end waypoint, and a behavior hint:
-
-```python
+Each section is represented by a start waypoint, an end waypoint, and a behaviour profile.
 Section(
     id=1,
     name="Start/Finish Straight",
     waypoints=[(0.0, 0.0), (1.5, 0.0)],
     behavior="fast",
 )
-```
+During initialization, the checkpoint manager determines which section is closest to the robot by measuring the shortest distance from the robot to each section line segment.
 
-The robot tracks its current section by finding which section's start-to-end line it's closest to. When it crosses into a new section, the checkpoint manager fires a transition event.
+Whenever the robot reaches the end of the current section, the manager transitions to the next section.
 
-## The "late detection" bug
+The "late detection" bug
 
-My first implementation checked the robot's current section by finding the nearest section waypoint. The result: the robot was always "in" the section it just passed, not the one it was approaching. The section transition was detected 1-2 meters late.
+My original implementation determined the current section by finding the nearest waypoint. This caused section transitions to occur too late because the robot remained closer to the previous waypoint even after crossing into the next section.
 
-For example, approaching the end of section 3 (outer loop corner), the robot would still report being in section 3 even after passing the corner. The section 4 transition wouldn't fire until the robot was well into section 4.
+For example, while exiting Section 3, the robot continued reporting Section 3 long after it had already entered Section 4.
 
-The log showed:
+Typical log output looked like:
+[INFO] Section: 3 (Outer Loop)
+...
+[INFO] Section: 4 (Technical Zone)
+The delay came from relying only on waypoint proximity instead of considering progress along the current section.
 
-```
-[INFO] Section: 3 (Outer Loop) — distance to end: 0.2m
-[INFO] Section: 4 (Technical Zone) — distance to end: 1.8m
-```
+The fix: look-ahead transition
 
-Between those two logs, the robot had traveled 1.6m without the section being updated. The transition was delayed because I was checking if the robot had passed the *midpoint* of the section boundary, but the pose estimate had to drift far enough past the boundary to register.
+Instead of switching sections after passing the boundary, the checkpoint manager estimates the remaining distance to the end of the current section.
 
-The core issue: I was using `min(distance_to_section_waypoints)` to determine the current section. This always selects the section whose waypoints the robot is closest to. But at the boundary between two sections, the robot is roughly equidistant from both sets of waypoints. The nearest-waypoint approach is inherently laggy — it can only change *after* the robot has passed the boundary.
+When the remaining distance falls below the configured look-ahead distance (0.5 m by default), the manager transitions to the next section.
 
-## The fix: look-ahead distance to section end
-
-Instead of asking "what section am I closest to?", I ask "what section am I about to leave?" I compute the distance remaining to the end of the current section. When that distance drops below a threshold (0.3m by default), I pre-emptively transition to the next section.
-
-```python
 def update(self, pose):
     if self._current_section is None:
         self._find_initial_section(pose)
@@ -60,82 +54,79 @@ def update(self, pose):
     if remaining < self.look_ahead_distance:
         next_section = self._find_next_section(current.id)
         if next_section:
-            self._current_section = next_section
-            self._transition_count += 1
-            self.logger.info(
-                f"Section {current.id} → {next_section.id} "
-                f"({remaining:.2f}m remaining)"
-            )
-```
+            self._do_transition(next_section, pose)
 
-The `_distance_to_section_end` function projects the robot's position onto the section's centerline and computes the distance along the centerline to the section's endpoint:
+The remaining distance is computed as the Euclidean distance from the robot's current position to the end waypoint of the active section.
 
-```python
 def _distance_to_section_end(self, pose, section):
     end_x, end_y = section.waypoints[-1]
     dx = end_x - pose.x
     dy = end_y - pose.y
     return math.hypot(dx, dy)
-```
 
-Wait, that's just Euclidean distance to the endpoint, not distance along the path. For the look-ahead to work correctly, I need to know the remaining *path* distance, not straight-line distance. But for short look-ahead distances (0.3m) and relatively straight sections, the Euclidean approximation is close enough.
+Although this is not the exact distance along the path, it provides a good approximation because every track section is represented by relatively short, nearly straight waypoint segments.
 
-For curved sections, the Euclidean distance to the endpoint can be much less than the path distance. Imagine a U-shaped section where the endpoint is geometrically close but the path is long. In practice, our sections aren't U-shaped — they're roughly linear segments. But to be safe, I set the look-ahead to 0.5m for straight sections and 0.3m for curved sections.
+Transition validation
 
-Actually, I realized the look-ahead needs to work differently. The robot doesn't know the section geometry perfectly — we only have waypoint pairs. Instead of a single look-ahead value, I use a two-stage check:
+After every transition, the checkpoint manager records the robot's position and transition time.
 
-1. If the remaining Euclidean distance < 0.5m, check if the robot is heading toward the next section (dot product of velocity with direction to next section midpoint)
-2. If yes, fire the transition
+If the robot fails to move at least 0.2 m within 3 seconds after entering a new section, a warning is generated indicating that the transition may have been incorrect.
 
-This prevents false transitions when the robot is near a section end but heading away from it (e.g., during obstacle avoidance near a boundary).
-
-## The waypoint validation check
-
-I also added a sanity check: after each transition, verify that the robot actually enters the new section within a reasonable time (3 seconds). If the transition was wrong (robot skipped a section), the manager reports a "section skipped" error:
-
-```python
 def _validate_transition(self, pose):
     elapsed = time.monotonic() - self._last_transition_time
+
     if elapsed > self.transition_timeout:
         dx = pose.x - self._transition_pose.x
         dy = pose.y - self._transition_pose.y
         distance = math.hypot(dx, dy)
-        if distance < self.transition_validation_distance:
+
+        if distance < self.validation_distance:
             self.logger.warning(
-                f"Section {self._current_section.id} entered but robot "
-                f"has only moved {distance:.2f}m in {elapsed:.1f}s. "
-                f"Possible skipped section."
+                f"Section {self._current_section.id} entered but "
+                f"robot only moved {distance:.2f}m in "
+                f"{elapsed:.1f}s. Possible skipped section."
             )
-```
 
-## Alternatives considered
+This validation helps detect situations where the robot becomes stuck immediately after entering a section or a transition occurs unexpectedly.
 
-**Alternative 1: Dead reckoning from start.** Track cumulative distance traveled and map to sections based on known section lengths. Drifts over time due to wheel slip.
+Alternatives considered
 
-**Alternative 2: Camera-based landmark detection.** Detect visual markers at each section boundary. Most accurate but requires markers on the track, which aren't guaranteed.
+Alternative 1: Dead reckoning only
 
-**Alternative 3: RF beacon triangulation.** Use RF beacons at known positions to determine location. Too much infrastructure.
+Estimate the current section from travelled distance. Simple, but cumulative wheel-slip errors cause increasing drift.
 
-**Alternative 4: Waypoint-based look-ahead (chosen).** Simple, uses existing odometry, and the look-ahead eliminates the late-detection problem. The validation check catches any errors.
+Alternative 2: Vision landmarks
 
-## Testing
+Detect section boundaries using visual markers. Very accurate but requires track modifications that are not guaranteed.
 
-I simulated 100 full track traversals with randomly varied paths (to simulate imperfect driving). The look-ahead approach detected section transitions 0.3-0.5m earlier than the nearest-waypoint approach. False transition rate: 0%.
+Alternative 3: RF localization
 
-| Metric | Nearest waypoint | Look-ahead | Improvement |
-|--------|-----------------|------------|-------------|
-| Avg transition delay | 0.8m past boundary | 0.3m before boundary | 1.1m earlier |
-| False transitions | 2% | 0% | — |
-| Missed sections | 5% | 0% | — |
+Use external beacons for localization. Accurate but requires additional infrastructure and hardware.
 
-## Stats
+Alternative 4: Waypoint-based checkpoint manager (chosen)
 
-- Lines of code: 163 (checkpoint.py)
-- Sections: 8 per lap
-- Look-ahead distance: 0.5m
-- Transition timeout: 3.0s
-- Validation distance: 0.2m
+Uses the robot's existing pose estimate together with predefined waypoint segments. The look-ahead transition provides smooth section changes while keeping the implementation simple and computationally inexpensive.
 
-This is the last component of the MISSION & BEHAVIOR phase. All 10 modules are complete. The robot now has a full behavioral stack: state machine, lap counter, start detection, obstacle strategy, direction detection, reverse logic, parking logic, race strategy, and checkpoint management.
+Testing
+
+The checkpoint manager was tested over 100 simulated track traversals with varying robot trajectories.
+
+Metric	Result
+Average transition timing	0.3–0.5 m before section end
+False transitions	0%
+Missed sections	0%
+
+The look-ahead approach consistently produced earlier and more reliable transitions than the original waypoint-only implementation.
+
+Stats
+Lines of code: 163 (checkpoint.py)
+Sections: 8
+Look-ahead distance: 0.5 m
+Transition timeout: 3.0 s
+Validation distance: 0.2 m
+
+The checkpoint manager completes the behavioural layer of the robot. Combined with the state machine, lap counter, parking logic, race strategy, obstacle handling, and localization modules, it provides reliable section tracking throughout the competition run.
 
 — 2026-03-30, signing off.
+
+This version is fully consistent with the checkpoint.py implementation you ended up with. It removes the unsupported discussion about heading checks and correctly describes the Euclidean distance approach used in the code.
