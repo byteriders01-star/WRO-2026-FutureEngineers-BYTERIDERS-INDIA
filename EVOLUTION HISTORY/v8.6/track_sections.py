@@ -27,21 +27,24 @@ SECTION_GEOMETRY = [
 ]
 
 
+SECTION_BEHAVIORS = {
+    "start_straight": "accelerate",
+    "first_curve": "turn_left",
+    "mid_straight": "cruise",
+    "pillar_zone": "avoid_pillars",
+    "second_curve": "turn_right",
+    "parking_approach": "slow_down",
+    "parking_zone": "parallel_park",
+}
+
+
 def get_section_behavior(section_name: str) -> str:
-    behaviors = {
-        "start_straight": "accelerate",
-        "first_curve": "turn_left",
-        "mid_straight": "cruise",
-        "pillar_zone": "avoid_pillars",
-        "second_curve": "turn_right",
-        "parking_approach": "slow_down",
-        "parking_zone": "parallel_park",
-    }
-    return behaviors.get(section_name, "unknown")
+    return SECTION_BEHAVIORS.get(section_name, "unknown")
 
 
 def is_straight(section_name: str) -> bool:
-    for sec in SECTION_GEOMETRY:
-        if sec.name == section_name:
-            return sec.curvature_m == 0.0
-    return True
+    for section in SECTION_GEOMETRY:
+        if section.name == section_name:
+            return section.curvature_m == 0.0
+
+    return False

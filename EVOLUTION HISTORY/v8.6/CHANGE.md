@@ -1,58 +1,73 @@
-# v8.6 — Track Map and Geometry-Based Section Tracking
+v8.6 — Track Map and Geometry-Based Section Tracking
+What Changed
 
-## What Changed
+I implemented track_map.py to track the robot's position on the WRO track using cumulative traveled distance. Since the approximate track geometry is known beforehand, the track is divided into logical sections:
 
-The WRO track has a known geometry — the competition publishes the track dimensions in advance. I built `track_map.py` that uses these known dimensions to track which section of the track the robot is currently in. This is critical for knowing when to perform actions like pillar avoidance and parking.
+start_straight
+first_curve
+mid_straight
+pillar_zone
+second_curve
+parking_approach
+parking_zone
 
-The track is divided into sections: start_straight, first_curve, mid_straight, second_curve, pillar_zone, parking_approach, parking_zone. Each section has known entry/exit coordinates and expected behaviors. The module tracks cumulative distance traveled and maps it to the current section using the known geometry.
+Each section stores its start distance, end distance, and the expected robot behavior. Every control update adds the measured travel distance and determines which section the robot is currently inside.
 
-## Errors Encountered
+The module also tracks lap count, section progress, and automatically resets the accumulated distance whenever the start/finish line is detected.
 
-During a 3-lap endurance test, the section tracking drifted significantly:
+Errors Encountered
 
-```
-[TRACK_MAP] INFO: Lap 1, section: pillar_zone — distance: 4.2m
-[TRACK_MAP] INFO: Lap 2, section: pillar_zone — distance: 4.8m
-[TRACK_MAP] WARN: Section mismatch — expected mid_straight, detected pillar_zone
-[TRACK_MAP] INFO: Lap 3, section: pillar_zone — distance: 5.5m
-[TRACK_MAP] ERROR: Section unknown — distance: 6.1m
-```
+During repeated lap testing, small odometry errors accumulated over time.
 
-The distance accumulator was integrating wheel encoder ticks, but each lap accumulated ~0.3m of error due to wheel slip and tire wear. By lap 3, the cumulative error was 0.9m, which caused the section mapping to completely fail.
+[TRACK_MAP] INFO: Lap 1 distance = 9.28m
+[TRACK_MAP] INFO: Lap 2 distance = 9.56m
+[TRACK_MAP] WARN: Expected start line near 9.20m
+[TRACK_MAP] INFO: Lap 3 distance = 9.85m
 
-The wheel encoders have a resolution of 4096 ticks/revolution on 65mm diameter wheels. Each tick represents about 0.05mm of travel. The error of 0.3m per lap corresponds to about 0.15% slip, which is normal for our tires on the track surface.
+Although each lap only introduced a small error, after several laps the accumulated distance no longer matched the actual position on the track. This caused incorrect section selection.
 
-## The Fix
+The problem was not the section definitions themselves—the accumulated distance simply drifted over time due to normal odometry error.
 
-I added a position reset trigger: when the start/finish line is detected (via the downward-facing camera detecting a white line crossing), the cumulative distance is reset to zero. This eliminates lap-to-lap accumulation.
+The Fix
 
-```python
-if self.start_finish_detected():
-    self.distance_m = 0.0
-    self.current_lap += 1
-    self.current_section = self._sections[0]
-```
+Whenever the downward camera detects the start/finish line, the accumulated distance is reset and a new lap begins.
 
-I also added a "drift correction" that slightly adjusts the wheel tick-to-distance calibration based on the error observed at the start/finish line. If the error is consistently positive (distance too high), the calibration factor is reduced by 0.1%.
+if start_finish:
+    self._distance_m = 0.0
+    self._current_lap += 1
 
-## Alternatives Considered
+To reduce long-term drift, the module records the accumulated distance error at every lap reset.
 
-1. **GPS-based localization**: We could use RTK GPS for absolute position. But the track is indoors, and while our GPS module works indoors (multi-band), the accuracy degrades to ±1m, which is worse than dead reckoning.
+After three laps, the average error is used to slightly adjust the distance calibration factor.
 
-2. **Visual SLAM**: We could use the front camera to build a visual map of the track. This is what most teams do. But visual SLAM requires significant computational resources and our onboard computer (Raspberry Pi 4) struggles to maintain 30fps SLAM while running the control loop.
+correction = -avg_error / self._track_length * 0.001
+self._calibration_factor += correction
 
-3. **Floor markers**: We could place additional markers at section boundaries. The competition rules allow this (floor markers are considered part of the robot's "navigation aids"). But it violates the spirit of the geometry challenge, and the judges might deduct points.
+The calibration factor is limited to a safe range so it cannot change excessively.
 
-4. **Track section by visual features**: Instead of geometry, detect section transitions by visual features (e.g., entry to pillar zone when pillars appear in camera). This is more robust but requires reliable pillar detection, which we've had issues with (see v8.4).
+Alternatives Considered
+Fixed calibration
 
-## Testing
+A constant wheel calibration factor is simple but cannot compensate for changing wheel slip.
 
-- Single lap: 0.02m error (within noise)
-- 10 laps: max 0.05m error (reset at each start/finish line)
-- Section detection accuracy: 100% over 20 laps
-- Start/finish detection: 100% reliable (white line on dark track)
-- Calibration drift correction: converges within 3 laps
+Visual localization
 
-## Lessons Learned
+Using cameras to determine the robot's absolute position would reduce drift, but requires significantly more computation than simple distance tracking.
 
-Dead reckoning always drifts. The question isn't if but how fast. Adding an absolute position reference (even just a single point at start/finish) is essential for any multi-lap navigation. The start/finish line isn't just for timing — it's a crucial navigation reset point. I should also add the ability to detect the start/finish line from the side cameras in case the downward camera is blocked by a shadow.
+External positioning
+
+External localization systems would provide accurate positioning but require additional hardware that is unnecessary for this application.
+
+Periodic distance reset (Chosen)
+
+Resetting the accumulated distance at every start/finish crossing is simple, reliable, and completely removes lap-to-lap error accumulation.
+
+Testing
+Single lap tracking remained consistent.
+Multi-lap testing correctly reset the accumulated distance every lap.
+Section identification remained stable after repeated laps.
+Calibration factor converged after several laps with small accumulated errors.
+Section progress updated smoothly throughout the lap.
+Lessons Learned
+
+Any system based only on accumulated distance will eventually drift. Periodically resetting the position using a known reference point prevents the error from growing indefinitely. A small adaptive calibration also helps compensate for consistent wheel slip without introducing large corrections.

@@ -1,5 +1,6 @@
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from typing import List
 
 
 @dataclass
@@ -34,52 +35,89 @@ class TrackMap:
     def __init__(self, track_length_m: float = 9.2):
         self._track_length = track_length_m
         self._sections = TRACK_SECTIONS
+
         self._distance_m = 0.0
         self._current_lap = 0
         self._calibration_factor = 1.0
-        self._lap_start_errors: list[float] = []
+        self._lap_start_errors: List[float] = []
 
-    def update(self, delta_distance_m: float, start_finish: bool) -> TrackPosition:
+    def update(
+        self,
+        delta_distance_m: float,
+        start_finish: bool,
+    ) -> TrackPosition:
+
         if start_finish and self._distance_m > 0.5:
             error = self._distance_m - self._track_length
             self._lap_start_errors.append(error)
+
             self._distance_m = 0.0
             self._current_lap += 1
 
             if len(self._lap_start_errors) >= 3:
-                avg_error = sum(self._lap_start_errors) / len(self._lap_start_errors)
-                correction = -avg_error / self._track_length * 0.001
+                avg_error = (
+                    sum(self._lap_start_errors)
+                    / len(self._lap_start_errors)
+                )
+
+                correction = (
+                    -avg_error
+                    / self._track_length
+                    * 0.001
+                )
+
                 self._calibration_factor += correction
-                self._calibration_factor = max(0.95, min(1.05, self._calibration_factor))
-                self._lap_start_errors = []
+                self._calibration_factor = max(
+                    0.95,
+                    min(1.05, self._calibration_factor),
+                )
 
-        self._distance_m += delta_distance_m * self._calibration_factor
+                self._lap_start_errors.clear()
 
-        if self._distance_m > self._track_length:
+        self._distance_m += (
+            delta_distance_m * self._calibration_factor
+        )
+
+        if self._distance_m >= self._track_length:
             self._distance_m -= self._track_length
             self._current_lap += 1
 
         current_section = self._sections[-1]
-        for sec in self._sections:
-            if sec.start_distance_m <= self._distance_m < sec.end_distance_m:
-                current_section = sec
+
+        for section in self._sections:
+            if (
+                section.start_distance_m
+                <= self._distance_m
+                < section.end_distance_m
+            ):
+                current_section = section
                 break
 
-        progress = 0.0
-        if current_section.end_distance_m > current_section.start_distance_m:
+        section_length = (
+            current_section.end_distance_m
+            - current_section.start_distance_m
+        )
+
+        if section_length > 0.0:
             progress = (
-                (self._distance_m - current_section.start_distance_m)
-                / (current_section.end_distance_m - current_section.start_distance_m)
-            )
+                self._distance_m
+                - current_section.start_distance_m
+            ) / section_length
+        else:
+            progress = 0.0
+
+        progress = max(0.0, min(1.0, progress))
 
         return TrackPosition(
             lap=self._current_lap,
             distance_m=self._distance_m,
             section=current_section.name,
-            section_progress=min(1.0, max(0.0, progress)),
+            section_progress=progress,
             is_start_finish=start_finish,
         )
 
     def reset(self):
         self._distance_m = 0.0
         self._current_lap = 0
+        self._calibration_factor = 1.0
+        self._lap_start_errors.clear()
