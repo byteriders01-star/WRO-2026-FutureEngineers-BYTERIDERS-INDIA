@@ -11,55 +11,65 @@ class TaskContext:
 
 
 class RobotTask(ABC):
-    def __init__(self, name: str):
+    def __init__(self, name: str) -> None:
         self.name = name
         self._ctx = TaskContext()
 
     @abstractmethod
-    async def execute(self, ctx: TaskContext):
+    async def execute(self, ctx: TaskContext) -> None:
+        """Execute one iteration of the task."""
         ...
 
-    async def run(self):
-        t0 = asyncio.get_event_loop().time()
+    async def run(self) -> None:
+        loop = asyncio.get_running_loop()
+
+        start_time = loop.time()
+
         self._ctx.iteration += 1
         await self.execute(self._ctx)
-        t1 = asyncio.get_event_loop().time()
-        self._ctx.dt_s = t1 - t0
-        self._ctx.timestamp = t1
+
+        end_time = loop.time()
+
+        self._ctx.dt_s = end_time - start_time
+        self._ctx.timestamp = end_time
 
 
 class SensorTask(RobotTask):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("sensors")
         self.accelerations: list[float] = []
         self.gyro: list[float] = []
 
-    async def execute(self, ctx: TaskContext):
+    async def execute(self, ctx: TaskContext) -> None:
+        # Read IMU, encoders, etc.
         pass
 
 
 class PerceptionTask(RobotTask):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("perception")
-        self.detected_pillars: list[dict] = []
+        self.detected_pillars: list[dict[str, float]] = []
 
-    async def execute(self, ctx: TaskContext):
+    async def execute(self, ctx: TaskContext) -> None:
+        # Run vision pipeline.
         pass
 
 
 class ControlTask(RobotTask):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("control")
-        self.steering_cmd: dict = {}
+        self.steering_cmd: dict[str, float] = {}
 
-    async def execute(self, ctx: TaskContext):
+    async def execute(self, ctx: TaskContext) -> None:
+        # Compute steering and speed commands.
         pass
 
 
 class LoggingTask(RobotTask):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("logging")
         self.buffer: list[str] = []
 
-    async def execute(self, ctx: TaskContext):
+    async def execute(self, ctx: TaskContext) -> None:
+        # Store telemetry.
         pass

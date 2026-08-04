@@ -1,147 +1,131 @@
-v8.7 — Real-Time Control Loop and Multi-Rate Updates
+v8.7 — Multi-Rate Task Scheduler
 What Changed
 
-As the robot software became more advanced, different modules required different update frequencies. Motor control and odometry needed fast, consistent updates for smooth driving, while computer vision naturally ran slower because each camera frame required OpenCV processing.
+As the robot software grew, different subsystems required different update rates. Sensor acquisition and motor control need to execute at high frequency, while perception and logging naturally run much slower.
 
-To improve responsiveness, I reorganized the software so that each subsystem runs at its own update rate while the main control loop always executes at a fixed frequency. The controller continuously uses the latest available sensor and perception data instead of waiting for every module to finish.
+To support this, I implemented a cooperative multi-rate scheduler in scheduler.py using Python's asyncio. Each task is assigned its own execution rate, and the scheduler runs every task independently using absolute-time scheduling to maintain consistent timing.
 
-The final update rates are:
+The configured update rates are:
 
 Module	Update Rate
+Sensors	100 Hz
 Motor Control	100 Hz
-Wheel Encoders	100 Hz
-IMU	100 Hz
-Odometry	100 Hz
-State Machine	50 Hz
-Camera Processing	15–20 FPS
-Obstacle Detection	15–20 FPS
-Parking Detection	15–20 FPS
+Perception	50 Hz
 Logging	1 Hz
+
+Each task executes asynchronously without blocking the execution of the others.
+
 The Problem
 
-Initially, every module was executed sequentially inside one loop.
+The first implementation used a simple relative delay after every task execution.
 
-Read Sensors
-↓
-Capture Camera Frame
-↓
-Run OpenCV
-↓
-Detect Obstacles
-↓
-Update State Machine
-↓
-Calculate Steering
-↓
-Send Motor Commands
+period = 1.0 / rate
 
-This worked well until image processing became expensive. Depending on the scene, OpenCV sometimes required 40–60 ms to process a frame. During this time the controller could not update the steering commands.
+while True:
+    await task.run()
+    await asyncio.sleep(period)
 
-A timing log showed the issue clearly:
+Although this appeared correct, every iteration included the task execution time in addition to the sleep period.
 
-Control Loop
+Task Runtime
++
+Sleep Period
+=
+Actual Cycle Time
 
-Cycle 1 : 10 ms
-Cycle 2 : 11 ms
-Cycle 3 : 49 ms
-Cycle 4 : 10 ms
-Cycle 5 : 51 ms
-Cycle 6 : 10 ms
+The result was small timing errors every cycle. While each error was only a fraction of a millisecond, they accumulated continuously during long runs.
 
-Whenever perception became slower, the steering controller also became slower because it was forced to wait for image processing to complete. This occasionally caused the robot to overshoot corners.
+Over several minutes the sensor and control tasks slowly drifted away from their intended execution rates, reducing timing consistency throughout the system.
 
 Investigation
 
-I profiled the execution time of every module.
+Timing measurements showed that the scheduler itself introduced cumulative drift because every delay was measured relative to the completion of the previous iteration rather than an absolute clock.
 
-Wheel Encoder Update      0.2 ms
-IMU Update                0.5 ms
-Odometry                  0.7 ms
-Stanley Controller        0.6 ms
-Motor Output              0.3 ms
-
-Camera Capture            8 ms
-OpenCV Processing        32 ms
-Obstacle Detection       11 ms
-
-The controller itself was very fast. Almost all of the delay came from computer vision.
-
-The important realization was that steering does not require a brand-new camera image every control cycle. The camera naturally produces only about 15–20 frames per second, while the controller can safely run at 100 Hz using the latest available perception result.
+The scheduler remained stable for short runs but gradually lost synchronization during extended operation.
 
 The Fix
 
-Instead of forcing the controller to wait for the camera, I separated the perception updates from the control loop.
+I replaced the relative-delay scheduler with absolute-time scheduling.
 
-Whenever a new camera frame is processed, the perception module updates the latest obstacle and parking information. The controller simply reads the newest available data every cycle.
+Each task keeps track of the exact time when the next execution should begin.
 
-Camera
-   │
-OpenCV
-   │
-Latest Detection
-   │
-───────────────
-100 Hz Control Loop
-Read Sensors
-Update Odometry
-Read Latest Detection
-Calculate Steering
-Drive Motors
-───────────────
+period = 1.0 / rate
+next_time = loop.time()
 
-This keeps steering updates consistent even if computer vision occasionally takes longer than expected.
+while True:
+    await task.run()
 
-Frame Validation
+    next_time += period
+    delay = next_time - loop.time()
 
-To prevent using outdated vision data, every processed frame stores a timestamp.
+    if delay > 0:
+        await asyncio.sleep(delay)
 
-frame_age = current_time - detection.timestamp
+Since every iteration is scheduled against the event loop clock rather than the previous execution, small timing errors no longer accumulate.
 
-if frame_age > 0.20:
-    detection.valid = False
+If a task occasionally takes longer than expected, only that execution is delayed. Future executions continue following the correct schedule instead of drifting indefinitely.
 
-If a camera frame is older than 200 ms, the controller ignores it until a newer frame becomes available. During that time the robot continues driving using odometry and lane tracking.
+Deadline Monitoring
+
+Each task also monitors its execution time.
+
+If a task exceeds its configured deadline, the scheduler records a deadline miss and logs a warning.
+
+if runtime > deadline:
+    stats.deadline_misses += 1
+
+Runtime statistics collected for every task include:
+
+Total iterations
+Average execution time
+Maximum execution time
+Last execution time
+Number of deadline misses
+
+These statistics help identify overloaded tasks during testing.
 
 Alternatives Considered
-Alternative 1 – Single Control Loop
+Alternative 1 – Relative Delay
 
-Simple to implement, but camera processing blocks steering updates whenever image processing becomes slow.
+Simple to implement but accumulates timing drift over long runs.
 
-Alternative 2 – Multi-threading
+Alternative 2 – Thread-Based Scheduling
 
-Running perception and control in separate threads improves responsiveness but introduces synchronization complexity and possible race conditions.
+Provides independent execution but introduces synchronization overhead and Python GIL limitations.
 
-Alternative 3 – Lower Camera Resolution
+Alternative 3 – Fixed Hardware Timers
 
-Reducing image resolution increases frame rate but decreases obstacle detection accuracy.
+Provides very accurate timing but greatly increases implementation complexity for this project.
 
-Alternative 4 – Independent Update Rates (Chosen)
+Alternative 4 – Absolute-Time Async Scheduler (Chosen)
 
-Each subsystem runs at the rate it naturally requires while the controller always executes at a fixed frequency using the latest available data. This keeps steering smooth without sacrificing perception accuracy.
+Uses cooperative multitasking with independent update rates while preventing cumulative timing drift and keeping the implementation lightweight.
 
 Testing
 
-The new architecture was tested over multiple continuous runs.
+The scheduler was tested with multiple asynchronous tasks running simultaneously.
 
-Metric	Before	After
-Control Loop	10–55 ms	Stable 10 ms
-Camera Frame Rate	15 FPS	15–20 FPS
-Steering Delay	Noticeable	Negligible
-Missed Control Updates	Frequent	None Observed
-Corner Tracking	Occasional Overshoot	Consistent
+Metric	Result
+Sensor Task	100 Hz
+Control Task	100 Hz
+Perception Task	50 Hz
+Logging Task	1 Hz
+Timing Drift	Negligible
+Deadline Monitoring	Working
+Runtime Statistics	Recorded
 
-The robot maintained stable steering even when OpenCV processing time varied significantly.
+The scheduler maintained stable execution rates throughout extended runs without cumulative drift.
 
 Stats
 Lines of code: 147 (scheduler.py)
-Main Control Loop: 100 Hz
-Camera Processing: 15–20 FPS
-State Machine: 50 Hz
-Logging: 1 Hz
-Maximum Valid Frame Age: 200 ms
-
-The controller now operates independently of camera processing delays, resulting in smoother steering and more reliable navigation.
-
+Scheduler type: Cooperative asyncio scheduler
+Scheduling method: Absolute-time scheduling
+Sensor rate: 100 Hz
+Control rate: 100 Hz
+Perception rate: 50 Hz
+Logging rate: 1 Hz
+Deadline monitoring: Supported
+Runtime statistics: Supported
 Lessons Learned
 
-Not every subsystem should run at the same frequency. Fast control loops and slower perception systems can work together effectively as long as the controller always has access to the latest valid information. Separating the timing of perception from motor control greatly improved the robot's responsiveness while keeping the software architecture simple and deterministic.
+Using relative delays in periodic tasks causes small timing errors to accumulate over time. Scheduling tasks against an absolute clock eliminates this drift while keeping execution rates stable. A lightweight cooperative scheduler is sufficient for the robot's software architecture and provides predictable timing without the complexity of multithreading.

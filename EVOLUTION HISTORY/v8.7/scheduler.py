@@ -1,7 +1,7 @@
 import asyncio
 import logging
-from dataclasses import dataclass, field
-from collections import defaultdict
+from dataclasses import dataclass
+from typing import Awaitable, Callable
 
 logger = logging.getLogger("scheduler")
 
@@ -9,7 +9,7 @@ logger = logging.getLogger("scheduler")
 @dataclass
 class TaskSpec:
     name: str
-    coro_func: callable
+    coro_func: Callable[[], Awaitable[None]]
     rate_hz: float
     priority: int = 0
     deadline_slack_pct: float = 20.0
@@ -26,64 +26,95 @@ class TaskStats:
 
 
 class MultiRateScheduler:
-    def __init__(self):
+    def __init__(self) -> None:
         self._tasks: list[TaskSpec] = []
         self._stats: dict[str, TaskStats] = {}
         self._running = False
 
-    def add_task(self, spec: TaskSpec):
+    def add_task(self, spec: TaskSpec) -> None:
+        if spec.rate_hz <= 0:
+            raise ValueError("Task rate must be greater than zero.")
+
         self._tasks.append(spec)
         self._stats[spec.name] = TaskStats(name=spec.name)
 
-    async def run(self):
+    async def run(self) -> None:
         self._running = True
-        loop = asyncio.get_event_loop()
-        runners = [self._run_task(spec, loop) for spec in self._tasks]
+        loop = asyncio.get_running_loop()
+
+        tasks = sorted(
+            self._tasks,
+            key=lambda task: task.priority,
+            reverse=True,
+        )
+
+        runners = [
+            asyncio.create_task(self._run_task(task, loop))
+            for task in tasks
+        ]
+
         await asyncio.gather(*runners)
 
-    async def stop(self):
+    async def stop(self) -> None:
         self._running = False
 
-    async def _run_task(self, spec: TaskSpec, loop: asyncio.AbstractEventLoop):
+    async def _run_task(
+        self,
+        spec: TaskSpec,
+        loop: asyncio.AbstractEventLoop,
+    ) -> None:
         period = 1.0 / spec.rate_hz
         next_time = loop.time()
         deadline = period * (1.0 - spec.deadline_slack_pct / 100.0)
+
         stats = self._stats[spec.name]
 
         while self._running:
-            t0 = loop.time()
+            start = loop.time()
+
             try:
                 await spec.coro_func()
             except Exception:
-                logger.exception(f"Task {spec.name} raised exception")
-            t1 = loop.time()
-            elapsed = t1 - t0
+                logger.exception("Task %s raised an exception", spec.name)
+
+            runtime = loop.time() - start
 
             stats.iterations += 1
-            stats.total_runtime_s += elapsed
-            stats.last_runtime_s = elapsed
-            stats.max_runtime_s = max(stats.max_runtime_s, elapsed)
+            stats.total_runtime_s += runtime
+            stats.last_runtime_s = runtime
+            stats.max_runtime_s = max(stats.max_runtime_s, runtime)
 
-            if elapsed > deadline:
+            if runtime > deadline:
                 stats.deadline_misses += 1
                 logger.warning(
-                    f"Task {spec.name} missed deadline: "
-                    f"{elapsed*1000:.1f}ms > {deadline*1000:.1f}ms"
+                    "Task %s missed deadline %.2f ms > %.2f ms",
+                    spec.name,
+                    runtime * 1000,
+                    deadline * 1000,
                 )
 
             next_time += period
-            delay = next_time - loop.time()
-            if delay > 0:
-                await asyncio.sleep(delay)
+            sleep_time = next_time - loop.time()
+
+            if sleep_time > 0:
+                await asyncio.sleep(sleep_time)
 
     def get_stats(self) -> dict[str, TaskStats]:
         return dict(self._stats)
 
-    def print_summary(self):
-        for name, s in self._stats.items():
-            avg = s.total_runtime_s / max(s.iterations, 1)
+    def print_summary(self) -> None:
+        for stats in self._stats.values():
+            avg_runtime = (
+                stats.total_runtime_s / stats.iterations
+                if stats.iterations
+                else 0.0
+            )
+
             logger.info(
-                f"{name}: {s.iterations} iters, "
-                f"avg {avg*1000:.2f}ms, max {s.max_runtime_s*1000:.2f}ms, "
-                f"missed {s.deadline_misses}"
+                "%s: %d iterations, avg %.2f ms, max %.2f ms, missed %d",
+                stats.name,
+                stats.iterations,
+                avg_runtime * 1000,
+                stats.max_runtime_s * 1000,
+                stats.deadline_misses,
             )
