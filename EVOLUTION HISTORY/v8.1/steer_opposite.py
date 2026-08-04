@@ -1,5 +1,6 @@
 import math
 from dataclasses import dataclass
+from typing import Optional
 
 from history.v8_common.steering_common import (
     SteeringCommand,
@@ -17,18 +18,31 @@ class OppositePhaseSteeringConfig:
 
 
 class OppositePhaseSteering:
-    def __init__(self, config: OppositePhaseSteeringConfig | None = None):
+    def __init__(
+        self,
+        config: Optional[OppositePhaseSteeringConfig] = None,
+    ):
         self.config = config or OppositePhaseSteeringConfig()
+
         self.limits = SteeringLimits(
             max_angle=math.radians(self.config.max_steering_angle_deg),
             min_turning_radius=self.config.min_turning_radius_m,
         )
 
-    def compute_steering(self, turning_radius: float) -> SteeringCommand:
-        if turning_radius < self.config.min_turning_radius_m:
-            turning_radius = self.config.min_turning_radius_m
+    def compute_steering(
+        self,
+        turning_radius: float,
+    ) -> SteeringCommand:
+        turning_radius = max(
+            turning_radius,
+            self.config.min_turning_radius_m,
+        )
 
-        angle = math.atan2(self.config.wheelbase_m, 2.0 * turning_radius)
+        angle = math.atan2(
+            self.config.wheelbase_m,
+            2.0 * turning_radius,
+        )
+
         angle = validate_steering_angle(angle, self.limits)
 
         return SteeringCommand(

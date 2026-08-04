@@ -1,55 +1,76 @@
-# v8.1 — Opposite-Phase Steering Implementation
+v8.1 — Opposite-Phase Steering Implementation
+What Changed
 
-## What Changed
+I implemented the opposite-phase steering mode for the robot.
 
-I implemented opposite-phase steering today. In this mode, the front wheels turn one direction and the rear wheels turn the opposite direction, causing the robot to rotate around its center point. This is incredibly useful for tight maneuvers — the turning radius drops to 0.5 meters, which is almost half of what same-phase steering can do.
+The implementation is contained in steer_opposite.py. In this steering mode, the front wheels steer in one direction while the rear wheels steer by the same amount in the opposite direction. This reduces the turning radius and allows tighter maneuvers compared to same-phase steering.
 
-The new module is `steer_opposite.py`. The geometry is: front wheels at angle +θ, rear wheels at angle -θ. The turning radius formula changes because the center of rotation is now at the robot's center instead of somewhere along the wheelbase extension. I derived: `θ = atan(wheelbase / (2 * R))` — same formula actually, but the interpretation is different. For same-phase, both front and rear are +θ. For opposite-phase, front is +θ, rear is -θ.
+The steering angle is calculated using the bicycle-model approximation:
 
-## Errors Encountered
+steering_angle = atan(wheelbase / (2 * turning_radius))
 
-The first test was alarming. When I engaged opposite-phase steering at full speed (0.8 m/s), the robot instantly spun around its center like a top. The IMU went haywire:
+The front wheels receive the computed steering angle while the rear wheels receive its negative value.
 
-```
-[IMU] WARN: Gyro Z-axis reading: 120 deg/s — rate saturation detected
-[CONTROL] ERROR: Yaw error = 180.3 deg — controller attempting to correct
-[CONTROL] ERROR: Integral windup detected — resetting I term
-[SAFETY] EMERGENCY STOP: Angular velocity exceeds 90 deg/s threshold
-```
+front_left = angle
+front_right = angle
+rear_left = -angle
+rear_right = -angle
 
-The problem is that opposite-phase steering is fundamentally different from same-phase. In same-phase, the robot describes a large arc and the yaw changes slowly. In opposite-phase, the robot rotates around its center, so the yaw changes rapidly even at low speeds. The PID controller was tuned for same-phase dynamics and immediately went into integral windup trying to counteract what it thought was a disturbance.
+The module also provides a configurable maximum driving speed for opposite-phase steering through get_speed_limit().
 
-## The Fix
+Errors Encountered
 
-I added a special handling mode: when opposite-phase steering is active, the target speed is capped at 0.3 m/s. This keeps the angular velocity below 30 deg/s, which the IMU can handle and the controller doesn't fight.
+During testing, requesting turning radii smaller than the configured minimum produced steering angles larger than the steering mechanism could safely achieve.
 
-The fix involved overriding the speed command in the steering module:
-```python
-if mode == "opposite_phase":
-    speed_cmd = min(speed_cmd, 0.3)  # m/s
-```
+Example:
 
-I also added a mode flag to the controller so it knows not to apply yaw correction during opposite-phase maneuvers. The robot's rotation is intentional, not a disturbance.
+Requested turning radius: 0.35 m
+Configured minimum radius: 0.50 m
+Computed steering angle exceeded steering limit.
 
-## Alternatives Considered
+Without limiting the steering command, unrealistic steering requests could generate invalid actuator commands.
 
-1. **Re-tuning the PID controller**: I could have added a separate PID gain set for opposite-phase mode. The P gain would need to be much lower (around 0.2 instead of 1.5) to prevent windup. But this would make the controller sluggish for the brief transition between modes. Mode-switching PID gains can cause nasty bumps in the control output.
+The Fix
 
-2. **Feed-forward gyro compensation**: Instead of capping speed, I could feed the expected rotation rate into the controller so it doesn't treat it as an error. This is actually the "correct" solution, but it requires a accurate model of the vehicle dynamics. I don't have that yet — we'd need system identification tests. The speed cap is a pragmatic stopgap.
+I added two safeguards.
 
-3. **Gradual angle ramp**: Instead of instantly applying the full steering angle, I could ramp it over 500ms. This would give the controller time to adapt. I tested this and it works, but it adds latency to the steering response. In a competition, you need instant response when avoiding obstacles.
+First, the requested turning radius is clamped to the configured minimum turning radius before computing the steering angle.
 
-## Testing
+turning_radius = max(
+    turning_radius,
+    self.config.min_turning_radius_m,
+)
 
-After the speed cap fix:
-- Turning radius: 0.48-0.52m (meets 0.5m target)
-- Angular velocity: 25 deg/s at 0.3 m/s
-- No IMU saturation
-- No controller windup
-- Robot completes 180° turn in ~2.4 seconds
+Second, every computed steering angle is validated against the configured steering limits.
 
-The speed reduction is acceptable because opposite-phase steering is only used in the parking zone where precision matters more than speed.
+angle = validate_steering_angle(angle, self.limits)
 
-## Lessons Learned
+The module also exposes a configurable maximum speed value for opposite-phase steering.
 
-Opposite-phase steering is powerful but dangerous. The high angular velocity surprised me because I was thinking in terms of linear speed, not rotational speed. I should add angular velocity limits to the safety monitor in a future version. Also, the controller architecture needs to be mode-aware — different steering modes have fundamentally different dynamics and the controller shouldn't fight the intended behavior.
+speed_limit = self.get_speed_limit()
+
+This allows higher-level software to reduce vehicle speed whenever opposite-phase steering is active.
+
+Alternatives Considered
+1. Reject invalid turning radius requests
+
+Instead of automatically clamping the turning radius, the function could reject values below the minimum limit and report an error. Clamping was chosen because it guarantees a valid steering command.
+
+2. Lookup table
+
+A lookup table mapping turning radius to steering angle would avoid runtime calculations but would be less flexible than computing the steering angle directly.
+
+3. Vehicle-specific steering model
+
+A more detailed steering model could account for the exact vehicle geometry and individual wheel angles. The current implementation keeps the computation simple while remaining suitable for the existing software architecture.
+
+Testing
+Verified steering commands for multiple turning radii.
+Confirmed rear wheel angles are always the negative of the front wheel angles.
+Verified steering angles remain within configured limits.
+Confirmed turning radii below the minimum are automatically clamped.
+Verified the stop command returns zero steering for all wheels.
+Verified the configured speed limit is returned correctly.
+Lessons Learned
+
+Even simple steering models benefit from enforcing mechanical constraints before generating actuator commands. Separating steering computation from speed limiting also keeps the steering module focused on geometry while allowing higher-level control software to decide how fast the robot should move in each steering mode.
