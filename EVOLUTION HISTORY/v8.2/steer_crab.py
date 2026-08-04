@@ -15,8 +15,9 @@ class CrabWalkSteeringConfig:
 
 
 class CrabWalkSteering:
-    def __init__(self, config: CrabWalkSteeringConfig | None = None):
+    def __init__(self, config: CrabWalkSteeringConfig | None = None) -> None:
         self.config = config or CrabWalkSteeringConfig()
+
         self.limits = SteeringLimits(
             max_angle=math.radians(self.config.max_steering_angle_deg),
             min_turning_radius=0.0,
@@ -24,7 +25,8 @@ class CrabWalkSteering:
 
     def compute_steering(self, crab_angle_deg: float) -> SteeringCommand:
         angle = validate_steering_angle(
-            math.radians(crab_angle_deg), self.limits
+            math.radians(crab_angle_deg),
+            self.limits,
         )
 
         return SteeringCommand(
@@ -39,9 +41,17 @@ class CrabWalkSteering:
     def get_speed_limit(self) -> float:
         return self.config.max_speed_mps
 
-    def decompose_velocity(self, speed: float, crab_angle_deg: float):
-        rad = math.radians(crab_angle_deg)
-        return speed * math.cos(rad), speed * math.sin(rad)
+    def decompose_velocity(
+        self,
+        speed: float,
+        crab_angle_deg: float,
+    ) -> tuple[float, float]:
+        angle = math.radians(crab_angle_deg)
+
+        velocity_x = speed * math.cos(angle)
+        velocity_y = speed * math.sin(angle)
+
+        return velocity_x, velocity_y
 
     def stop(self) -> SteeringCommand:
         return SteeringCommand(
