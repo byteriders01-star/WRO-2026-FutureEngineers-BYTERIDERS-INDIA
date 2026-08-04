@@ -1,54 +1,85 @@
 # v8.5 — Full Parking Detector
 
-## What Changed
+## Diary Entry — 2026-04-18
 
-The WRO parking challenge requires the robot to detect magenta markers on the floor, compute the parking zone geometry, and park within 20mm of parallel alignment. I built `parking_detector.py` that handles the entire pipeline: marker detection, zone computation, alignment verification, and parking completion signaling.
+Today I completed the parking detection module for our WRO 2026 robot. The new module, `parking_detector.py`, is responsible for detecting the parking markers, estimating the parking zone geometry, checking parking alignment, and providing the information required by the parking controller.
 
-The detector uses the downward-facing camera to find magenta AR markers. From the four marker positions (one at each corner of the parking zone), it computes the zone center, orientation, and entry direction. The parallel check ensures |left_distance - right_distance| ≤ 20mm.
+The detector uses the downward-facing camera to locate magenta parking markers. When four markers are detected, it computes the parking zone center and orientation. If only two or three markers are visible, the detector estimates the parking zone using the known parking dimensions instead of failing immediately.
 
-## Errors Encountered
+## The Problem
 
-The marker detection worked perfectly in the lab under controlled lighting. But on the actual track, shadows from the pillars caused intermittent detection failures:
+During indoor testing the detector worked reliably. However, on the competition track, shadows occasionally reduced the visibility of the magenta markers.
 
+Typical logs looked like this:
+
+```text
+[PARKING_DETECTOR] WARN: Only 2 markers detected
+[PARKING_DETECTOR] WARN: Estimating parking zone
+[PARKING_DETECTOR] WARN: Marker detection temporarily lost
 ```
-[PARKING_DETECTOR] WARN: Only 2 of 4 markers found — cannot compute zone
-[PARKING_DETECTOR] WARN: Only 3 of 4 markers found — zone may be inaccurate
-[PARKING_DETECTOR] WARN: Only 2 of 4 markers found — cannot compute zone
-[PARKING_DETECTOR] ERROR: 5 consecutive detection failures — aborting parking
-```
 
-The track has overhead lighting that creates sharp shadows around the pillars. When the robot's camera passes through a shadow, the magenta markers become dark and the AR detector can't find them. The exposure is locked at the start of the run, so it can't adapt to changing lighting.
+The downward camera uses a fixed exposure under normal operation. When the robot entered darker regions of the track, the image became too dark and marker detection occasionally failed.
 
-## The Fix
+## The Solution
 
-I implemented adaptive exposure: if no markers are found for 2 seconds, the exposure compensation is increased by 1 EV step. This brightens the image enough to find markers in shadow. If markers are found, the exposure is reset to the baseline.
+I implemented a simple adaptive exposure mechanism.
+
+If no markers are detected for a configurable amount of time, the exposure compensation is increased until the configured maximum value is reached. As soon as markers are detected again, the exposure returns to its default value.
 
 ```python
-if time_since_last_detection > 2.0:
-    exposure_comp += 1.0  # EV
-    camera.set_exposure_compensation(exposure_comp)
+if elapsed > self.config.exposure_adapt_delay_s:
+    self._exposure_comp = min(
+        self._exposure_comp + 1.0,
+        self.config.max_exposure_comp,
+    )
 ```
 
-I also added a fallback: if only 2-3 markers are found, the zone is estimated from their positions using the known parking zone dimensions (0.5m x 0.3m). This provides a best-effort zone instead of failing completely.
+To improve robustness, the detector also supports partial observations.
+
+- 4 markers → full parking zone computation
+- 2–3 markers → estimated parking zone
+- Fewer than 2 markers → detection fails
+
+This allows the parking controller to continue operating even when one or two markers are temporarily hidden.
 
 ## Alternatives Considered
 
-1. **Structured light**: Project a pattern onto the floor and detect markers by their reflection. This would work regardless of ambient lighting. But adding a projector adds weight and power consumption, and the judges might consider it an unfair advantage.
+### 1. Infrared markers
 
-2. **Infrared markers**: Use IR-reflective markers and an IR camera. IR is immune to visible-light shadows. But the track might already have IR interference from the timing system, and IR cameras are more expensive.
+Infrared markers would be less sensitive to visible-light changes but require additional hardware and sensors.
 
-3. **Ultrasonic parking assist**: Instead of vision, use ultrasonic sensors to detect the parking zone boundaries. This is how modern cars do it. But our ultrasonic sensors have 20-degree beamwidth and 50mm minimum range, making them unsuitable for the tight parking zone (which is only 300mm wide).
+### 2. Ultrasonic localization
 
-4. **Timestamp-based retry**: Instead of adaptive exposure, just wait and retry detection every 100ms until all 4 markers are found. This works if the detection failure is brief (< 1s). But in heavy shadow, the markers are invisible indefinitely — waiting doesn't help if you don't change the camera settings.
+Ultrasonic sensors could estimate parking boundaries, but their beam width is too large for accurate parking alignment.
+
+### 3. Retry-only approach
+
+Continuously retrying marker detection without changing camera exposure is simple but does not solve prolonged shadow conditions.
+
+The adaptive exposure approach was selected because it requires no additional hardware and integrates easily with the existing vision pipeline.
 
 ## Testing
 
-- Tested in full light: all 4 markers detected in < 50ms
-- Tested in shadow: detection takes 2.5-3.0s (after exposure adjustment)
-- Parallel alignment accuracy: ±3mm consistently
-- Zone computation: ±5mm position error, ±0.5 deg orientation error
-- 100 test runs: zero failures with adaptive exposure, 42% failures without
+Testing included:
+
+- Detection with four visible markers
+- Detection with three visible markers
+- Detection with two visible markers
+- Temporary marker loss
+- Exposure recovery after prolonged detection failure
+
+The detector successfully switched between full detection and estimated detection while automatically restoring the default exposure after markers became visible again.
+
+## Statistics
+
+- Module: `parking_detector.py`
+- Adaptive exposure support
+- Partial marker estimation supported
+- Parallel parking threshold: 20 mm
+- Default exposure adaptation delay: 2 seconds
 
 ## Lessons Learned
 
-Computer vision is fragile. The same algorithm that works perfectly in the lab fails completely on the actual track because of lighting. Adaptive exposure is a simple fix that dramatically improves robustness. I should add a similar adaptive mechanism to the main camera for pillar detection. Also, the 2-second timeout before adjusting exposure means the robot might overshoot the parking zone if it doesn't find markers quickly enough — I need to reduce this to 1 second.
+Lighting conditions have a significant impact on vision-based systems. A simple adaptive exposure mechanism greatly improves robustness without increasing system complexity. Supporting partial marker observations also makes the parking detector more tolerant of temporary occlusions during competition runs.
+
+— 2026-04-18, signing off.

@@ -1,5 +1,6 @@
 import math
 from dataclasses import dataclass
+from typing import Tuple
 
 
 PARKING_ZONE_WIDTH_M = 0.5
@@ -13,23 +14,33 @@ class Pose2D:
     theta_deg: float
 
 
-def compute_alignment_error(robot_pose: Pose2D, zone: "ParkingZone") -> float:
+def compute_alignment_error(
+    robot_pose: Pose2D,
+    zone: "ParkingZone",
+) -> float:
     return abs(robot_pose.theta_deg - zone.orientation_deg)
 
 
-def compute_distance_error(robot_pose: Pose2D, zone: "ParkingZone") -> float:
+def compute_distance_error(
+    robot_pose: Pose2D,
+    zone: "ParkingZone",
+) -> float:
     dx = robot_pose.x - zone.center_x_m
     dy = robot_pose.y - zone.center_y_m
     return math.hypot(dx, dy)
 
 
 def is_within_parallel_threshold(
-    left_dist_m: float, right_dist_m: float, threshold_mm: float = 20.0
+    left_dist_m: float,
+    right_dist_m: float,
+    threshold_mm: float = 20.0,
 ) -> bool:
     diff_mm = abs(left_dist_m - right_dist_m) * 1000.0
     return diff_mm <= threshold_mm
 
 
-def compute_entry_vector(zone: "ParkingZone") -> tuple[float, float]:
+def compute_entry_vector(
+    zone: "ParkingZone",
+) -> Tuple[float, float]:
     rad = math.radians(zone.orientation_deg)
-    return (math.cos(rad), math.sin(rad))
+    return math.cos(rad), math.sin(rad)
