@@ -1,6 +1,6 @@
 # 06_failure_analysis.md — Failure Analysis Registry & Empirical Validation
 
-## WRO Future Engineers 2026 - Engineering Documentation (Criterion 4 Supporting Evidence)
+## Criterion 4: Empirical Validation — Target 6/6
 
 ## 1. Executive Summary
 
