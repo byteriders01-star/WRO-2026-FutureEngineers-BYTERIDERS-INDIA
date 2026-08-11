@@ -1,0 +1,72 @@
+{
+  "system": {
+    "robot_name": "WRO_4WS_Pro_2026",
+    "serial_port": "/dev/ttyUSB0",
+    "baud_rate": 115200,
+    "loop_frequency_hz": 100,
+    "log_level": "INFO"
+  },
+  "gpio": {
+    "start_switch_pin":  16,
+    "led1_system_pin":   5,
+    "led2_sensors_pin":  6,
+    "led3_camera_pin":   13,
+    "led4_serial_pin":   19,
+    "led5_race_pin":     26
+  },
+  "surprise_rules": {
+    "SIGN_LOGIC": "NORMAL",
+    "DRIVING_DIRECTION": "CCW",
+    "NARROW_TRACK_MODE": false,
+    "STOP_AND_GO_ENABLED": true,
+    "STOP_DURATION_SEC": 3.0,
+    "EMERGENCY_BRAKE_DIST_MM": 180,
+    "PARKING_REVERSAL": false
+  },
+  "kinematics_4ws": {
+    "wheelbase_mm": 230.0,
+    "track_width_mm": 160.0,
+    "max_servo_angle_deg": 40.0,
+    "rear_to_front_ratio": 0.85,
+    "servo_center_pwm_us": 1500,
+    "servo_min_pwm_us": 1000,
+    "servo_max_pwm_us": 2000
+  },
+  "sensors": {
+    "i2c_bus": 1,
+    "pins": {
+      "front_xshut": 22,
+      "left_xshut": 17,
+      "right_xshut": 27
+    },
+    "addresses": {
+      "front_vl53l1x": "0x30",
+      "left_vl53l0x": "0x31",
+      "right_vl53l0x": "0x32",
+      "mpu6050": "0x68"
+    },
+    "enable_magnetometer": false,
+    "robot_length_mm": 300.0,
+    "robot_width_mm": 160.0
+  },
+  "camera": {
+    "device_index": 0,
+    "frame_width": 640,
+    "frame_height": 480,
+    "fps": 30,
+    "hsv_red1": { "low": [0, 120, 70], "high": [10, 255, 255] },
+    "hsv_red2": { "low": [170, 120, 70], "high": [180, 255, 255] },
+    "hsv_green": { "low": [36, 100, 80], "high": [85, 255, 255] },
+    "hsv_blue": { "low": [95, 120, 80], "high": [130, 255, 255] },
+    "hsv_magenta": { "low": [135, 80, 50], "high": [165, 255, 255] }
+  },
+  "controller": {
+    "stanley_k": 0.75,
+    "stanley_ks": 0.1,
+    "target_speed_normal": 60,
+    "target_speed_corner": 35,
+    "max_speed": 100,
+    "min_speed": 20,
+    "pid_speed": { "kp": 1.2, "ki": 0.05, "kd": 0.1 }
+  }
+}
