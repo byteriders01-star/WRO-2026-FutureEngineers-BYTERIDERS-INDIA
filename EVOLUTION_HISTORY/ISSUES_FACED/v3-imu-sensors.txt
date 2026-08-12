@@ -1,0 +1,2134 @@
+PHASE 3 - IMU AND SENSORS - ERROR CATALOG
+
+ERROR TOTAL : 63
+SMALL : 51
+BIG : 12
+TOTAL ERROR : 615
+PERCENTAGE : 10.24%
+
+------------------------------------------------------------
+HOW TO READ THIS FILE
+1. Every error is real. It was parsed from the CHANGE.md history chapter of
+   the version that hit it (other/history/vX.Y/CHANGE.md, section 9). Nothing
+   here was invented to fill a quota.
+2. Errors are grouped by version, in the order the versions happened.
+3. E-numbers restart at E0001 for each phase file.
+4. SMALL errors are one-line fixes; BIG errors needed an investigation.
+5. 'Found Day N' is the day the error was first observed, as recorded in the
+   chapter. 'Fixed in N days' is the time between that day and the last
+   recorded day of the version.
+6. The FIX section is the fix exactly as the chapter documented it.
+------------------------------------------------------------
+ANATOMY OF ONE ERROR ENTRY
+
+E0001 | v3.0 | SMALL or BIG | Found Day N | Fixed in N days | Terminal
+File : the file or files involved, as named in the chapter
+Error : the error text, quoted from the chapter
+Terminal : where the error was observed, from the chapter
+
+WHAT HAPPENED
+What we saw - the symptom, from the chapter's Symptom section.
+
+WHY IT HAPPENED
+The root cause, from the chapter's Root cause section.
+
+INVESTIGATION (only for BIG errors)
+How we found it - the chapter's Investigation section.
+
+FIX (took N days)
+The fix, from the chapter's Fix section.
+
+------------------------------------------------------------
+THE ERROR CATALOG
+
+## v3.0 - V3.0 (Day 58-59)
+
+TOTAL ERROR : 6
+SMALL : 5
+BIG : 1
+
+E0001 | v3.0 | BIG | Found Day 58 | Fixed in 2 days | the first captures from the freshly written logger produced CSVs whose first few
+File : imu_logger.py
+Error : mpu6050
+Terminal : the first captures from the freshly written logger produced CSVs whose first few
+
+WHAT HAPPENED
+On Day 58, the first captures from the freshly written logger produced CSVs whose first
+few hundred rows were nonsense: the gyro z column read spikes of ±15 to ±60 °/s (a
+stationary robot, by definition at ~0 °/s), the accelerometer showed ±0.5 to 1 g swings
+on ax and ay, and the worst of it was concentrated in the first ~0.5-1 s of the file.
+After that the traces settled to the quiet, plausible values we expected. The first plot
+we made — intended to show "clean raw data" — looked like a seismograph of a small
+earthquake followed by silence, and that plot is the honest face of the bug: it was in
+our very first data product, which is exactly the moment to find it. **Initial
+hypotheses** (in the order we guessed them, all incomplete): 1. *I2C bus contention.*
+The Pi shares the bus with three VL53 rangefinders; maybe a ToF sensor left the bus busy
+and the IMU reads returned garbage. Plausible enough that we checked the XSHUT lines
+first. 2. *The library reading partially-initialised registers.* The `mpu6050`
+constructor configures ranges but maybe the sensor wasn't ready when the loop started,
+so it returned power-on defaults or mid-reset data. 3. *EMI at power-on.* The Pi's own
+boot current transient corrupting I2C transactions. 4. *The spikes are real sensor
+output.* We had not considered this seriously at first, because a stationary sensor
+"should" read zero.
+
+WHY IT HAPPENED
+The MPU6050's gyro is a MEMS resonator: a proof mass is driven into oscillation by a
+drive loop, and the sense output measures the Coriolis effect on that moving mass. At
+power-on, the drive loop must establish and stabilise the oscillation amplitude, and the
+on-die temperature-compensation path must converge as the die warms by a few degrees
+from self-heating. Until both settle, the rate output rides a decaying transient and the
+accelerometer output is likewise contaminated by the mechanical settling of the
+spring-mass system. The datasheet's *steady-state* specifications — the ±20 °/s
+zero-rate worst case, the 0.005 °/s/√Hz noise — all implicitly assume the device has
+been running long enough to settle; they do not describe the first second. The DLPF's
+~256 Hz power-on bandwidth has a settling time of only a few milliseconds, so the filter
+is not the culprit; the second-scale decay is the resonator and temperature path. In
+plain words: **the first second of MPU6050 output is not data, it is the sensor waking
+up, and our first logger treated waking up as data.**
+
+INVESTIGATION (only for BIG errors)
+We instrumented the moment of truth with a throwaway script that printed raw values with
+timestamps from the instant the process started, then re-ran it with the sensor left
+powered for 30 s before the first read. Three observations settled it. First, re-reading
+immediately after a spike produced a different value — the bus was fine, the device was
+answering, the garbage was genuinely *in* the sensor's output. That killed H1, H2, and
+H3 at once: a bus or library failure would produce protocol errors, not
+plausible-looking decaying values. Second, a cold power-on always showed the transient;
+a warm sensor (30 s after power-on) showed none — the transient is a
+*time-from-power-on* phenomenon, not a time-from-script-start phenomenon, which is why
+moving the sleep in the script but not the power-on did nothing. Third, the decay shape
+was smooth and roughly exponential over ~0.5-1 s, not a digital glitch pattern.
+
+FIX (took 2 days)
+The warmup gate now ships in `imu_logger.py`: `time.sleep(1.0)` covers the measured
+0.5-1 s settling time with margin, then the 100-iteration discard loop drains the
+residual, and crucially `t0 = time.time()` is set *after* both, so the garbage never
+enters the file. The CHANGE.md's "discarded the first 100 samples" is the short-hand;
+the sleep is the primary mechanism and the discard is the cleanup; both are required and
+the ordering of `t0` is what makes either of them matter.
+
+---
+
+E0002 | v3.0 | SMALL | Found Day 58 | Fixed in 2 days | No observable failure
+File : imu_logger.py
+Error : get_accel_data(); get_gyro_data()
+Terminal : No observable failure
+
+WHAT HAPPENED
+No observable failure — this is a *precision* error in our own fix, and it surfaced in
+review. The CHANGE.md says the fix is "discarded the first 100 samples," which reads as
+if the discard covers the ~1 s of garbage. It does not. **Initial hypothesis.** We
+believed the discard loop was the whole fix.
+
+WHY IT HAPPENED
+A fixed count is a proxy for a time interval, and the count chosen (100) was picked
+because it was round and matched the CHANGE.md's story, not because it mapped to a
+measured settling time. If the bus had been slower (100 kHz default, 2-3 ms per read),
+the same 100 discards would have covered 200-300 ms; if faster, only 40 ms. The
+discard's true coverage is a dependent variable of bus speed, and we had specified a
+constant.
+
+FIX (took 2 days)
+We left the code as shipped (the pair sleep+discard works, with margin) but corrected
+the journal and the whiteboard: the warmup contract is *"at least 1.0 s of powered-on
+settling, then drain residual samples"* — the sleep is the guarantee, the count is
+decoration. The v3.1 calibration script re-uses the pattern and, tellingly, chooses
+`time.sleep(0.005)` per sample over N = 200 samples — a *timed* window of 1 s. The
+lineage is visible in the code of the next version.
+
+---
+
+E0003 | v3.0 | SMALL | Found Day 59 | Fixed in 1 day | when we tried to make the temperature-drift plot
+File : imu_logger.py, imu_calib.py
+Error : T ≈ Temp_Out/340 + 35 °C
+Terminal : when we tried to make the temperature-drift plot
+
+WHAT HAPPENED
+The original CHANGE.md claims we "plotted noise, bias and temperature drift." On Day 59,
+when we tried to make the temperature-drift plot, the analysis had no temperature column
+— `imu_logger.py` never reads the MPU6050's on-die temperature register (0x41-0x42,
+sensitivity ~340 LSB/°C, offset such that `T ≈ Temp_Out/340 + 35 °C`), even though the
+`mpu6050` library exposes a temperature read. The shipped code logs six columns;
+temperature was claimed, not logged.
+
+WHY IT HAPPENED
+Scope creep in reverse: the analysis plan (plot temperature drift) was written before
+the acquisition contract (log temperature), and nothing in the process forced the two to
+meet. The acquisition loop was designed around the two dict-returning calls we already
+knew; adding `get_temp()` was one line, and it was never written because no one checked
+the analysis plan against the file's schema until the plot was due.
+
+FIX (took 1 day)
+Honest re-scoping. The temperature *trend* came from a different source we already had:
+the six session captures were taken at different board temperatures (garage ~22 °C, hall
+~19 °C, and a warm-sensor repeat), and the session-to-session z-bias spread — +0.02 to
++0.11 °/s — correlated with capture order and hand-measured board temperature. That
+gives a *coarse* drift estimate (~0.02 °/s per °C on z) without a temperature column. We
+recorded the discrepancy in this journal, amended the CHANGE.md's claim to mean "bias
+and noise, plus session-to-session drift correlated with temperature," and filed the
+real fix — log `get_temp()` in the on-robot logger — as v3.1's job. v3.1's
+`imu_calib.py` does exactly the calibration that matters; the temperature column joins
+the logger when the sensor moves onto the robot.
+
+---
+
+E0004 | v3.0 | SMALL | Found Day 59 | Fixed in 1 day | The first cadence histogram was not
+File : imu_logger.py
+Error : time.sleep(0.01)
+Terminal : The first cadence histogram was not
+
+WHAT HAPPENED
+The first cadence histogram was not the clean 10.00 ms grid we imagined: the mean
+inter-sample gap was 10.4 ms (≈96 Hz), with excursions to 38 ms during a GC pause and
+one 52 ms outlier. Separately, we noticed that within a row, the gyro sample and the
+accel sample were not from the same instant — two separate I2C transactions ~0.5 ms
+apart.
+
+WHY IT HAPPENED
+Two distinct mechanisms. The cadence jitter is the Pi's scheduler: `time.sleep(0.01)` is
+a *minimum* wait, and the loop body plus scheduling noise makes every period slightly
+longer, occasionally much longer. The skew is architectural: reading six accel registers
+and six gyro registers as two separate transactions cannot produce a single simultaneous
+sample; the two readings straddle ~0.5 ms of sensor time. At bench scale both are
+negligible — 0.5 ms of skew on a stationary sensor is nothing, and the timestamp column
+makes jitter harmless. At 1.8 m/s, 0.5 ms is ~0.9 mm of motion, and a 52 ms gap at the
+*start* of a capture is a 9.4 cm blind spot in any time-aligned fusion.
+
+FIX (took 1 day)
+We did not "fix" either — we *accounted* for both. The timestamp column records the
+truth so the offline analysis never assumes cadence; the skew is documented as a known
+constant for any future fusion that time-aligns accel and gyro. The fix that matters is
+the discipline: *a log whose timestamps are honest survives a scheduler that is not.*
+
+---
+
+E0005 | v3.0 | SMALL | Found Day 59 | Fixed in 1 day | the warmup gate shipped
+File : imu_logger.py
+Error : t0
+Terminal : the warmup gate shipped
+
+WHAT HAPPENED
+After the warmup gate shipped, the first post-fix capture was clean — AC5-style clean,
+every sample inside ±3σ, plot beautiful. It was tempting to declare victory and move to
+the VL53 bring-up.
+
+WHY IT HAPPENED
+Confirmation bias, the same failure v2.9's Error 6 documented: a clean run after a
+change looks like success even when the change was cosmetic or the run was lucky.
+
+FIX (took 1 day)
+The negative test became part of the verification procedure (section 10): *every claim
+of "no failure" is accompanied by a demonstration that the failure returns when the fix
+is removed.* The cold power-on capture with the gate reverted is now in the standard
+script.
+
+---
+
+E0006 | v3.0 | SMALL | Found Day 59 | Fixed in 1 day | one mid-morning capture
+File : imu_logger.py
+Error : OSError
+Terminal : one mid-morning capture
+
+WHAT HAPPENED
+During one mid-morning capture, the logger began returning `OSError` on the I2C
+transaction and the loop died. Every subsequent read failed until we power-cycled the
+sensor.
+
+WHY IT HAPPENED
+A mid-transaction power glitch (we believe a momentary contact issue on our breadboard
+power rail, aggravated by the drill's EMI on the same bench) left the I2C state machine
+on the sensor side without a reset, and the Pi's busio implementation, once the bus is
+held, does not recover without intervention. It is a hardware-edge failure, rare, and —
+on a bench instrument — recoverable by re-running the session. On a robot it would be a
+crash.
+
+FIX (took 1 day)
+For v3.0: power-cycle and re-run; the affected session was discarded and re-captured.
+The *robustness* fix — catching the `OSError`, resetting the bus, and retrying after a
+delay — was deliberately not added, because a retrying logger on the bench can mask a
+wiring fault by "working through" it. The journal records the exact decision: no retry
+in the bench instrument; the on-robot logger will need a bus-reset path, and v1.8's
+sensor-health pattern is the template.
+
+---
+
+## v3.1 - IMU CALIBRATION: KILLING GYRO BIAS AT BOOT (Day 61-63)
+
+TOTAL ERROR : 6
+SMALL : 5
+BIG : 1
+
+E0007 | v3.1 | BIG | Found Day 61 | Fixed in 3 days | venue
+File : imu_bias.json
+Error : imu_bias.json
+Terminal : venue
+
+WHAT HAPPENED
+On Day 61 we ran the first trust test: calibrate at the garage workbench at 21 degrees
+Celsius in the evening, boot the robot at the venue at 26 degrees the next morning, then
+run a two-lap course. The first lap looked acceptable on the plot — heading error near
+3-4 degrees. By the second lap the robot was visibly veering into the corner markers,
+and the logged heading showed a steadily growing residual error that reached about 15
+degrees by lap end. The same battery of tests, run again 20 minutes later, showed a
+*different* starting offset. The integrator was not drifting randomly; it was drifting
+in a way that scaled with wall clock time since the previous calibration.
+
+WHY IT HAPPENED
+The zero-rate output of a MEMS gyroscope is not a constant; it is the sum of the true
+zero output, a temperature-dependent term, and a slowly settling power-on transient.
+Physically, the resonator stiffness and the analog front-end offset both shift with
+temperature, and the MPU6050 self-heats because it sits a few centimeters from a Pi 4B
+and a TB6612FNG driver that together dissipate several watts. A slope of even 0.1 deg/s
+per degree Celsius over a 7.7 degree climb explains the measured 0.8 deg/s swing.
+Integrated over a 15.6 s lap, 0.8 deg/s is 12.5 degrees — the size of the error we saw —
+and over two laps it compounds to the 15+ degree residual. The error was not a code bug;
+it was a calibration timing bug. The bias we subtracted was correct at the moment of
+capture and wrong at the moment of racing. One detail of the mechanism deserves emphasis
+because it changes how we diagnose this class of fault forever: the temperature curve of
+the MPU6050 ZRO is not a clean line, it has a knee. On our part, the largest 5-minute
+step (0.3 deg/s) happened between minutes 10 and 15, right as the chassis crossed
+roughly 27 degrees Celsius, after which the rate of change slowed even though the
+temperature kept climbing. A linear model would have predicted the drift to keep growing
+at the same slope; the knee meant the *sign of the residual* flipped partway through the
+session, which is exactly the kind of behavior that makes a stale bias look like
+intermittent noise instead of a deterministic ramp. The diagnostic consequence: when a
+heading error changes sign over time, suspect the bias's temperature curve, not the code
+that applies it. We logged the internal temperature register in every future soak test
+specifically so a knee can be correlated with a sign flip instead of being dismissed as
+measurement scatter.
+
+INVESTIGATION (only for BIG errors)
+We eliminated hypothesis one first by instrumenting the boot path to print the loaded
+bias values and the first corrected sample; the printed numbers matched `imu_bias.json`,
+so subtraction was running. We eliminated hypothesis two with the jig test: a 360-degree
+rotation at a steady 30 deg/s returned to within 1.2 degrees of the start on the
+corrected integrator, so the scale factor was not the dominant error. Hypothesis three
+was partially real — vibration spikes were present in the raw log — but a covariance
+analysis showed those spikes were zero-mean over a second and could not produce a
+persistent 15-degree ramp. That left
+
+FIX (took 3 days)
+Two changes, both in the shipped design. First, the bias is stored to `imu_bias.json` so
+it survives reboots and can be audited by a human — but it is explicitly a *starting
+point*. Second, an auto-recalibration option runs the same 200-sample capture at boot,
+triggered by the GPIO 16 switch at the venue, so the subtraction uses a bias measured
+minutes before the run, not hours before it. The stored value becomes the fallback when
+the fresh capture is flagged bad. This is the fix the short CHANGE.md records, and it
+directly converts a 0.8 deg/s stale-bias error into a fraction of the measured drift.
+
+---
+
+E0008 | v3.1 | SMALL | Found Day 61 | Fixed in 3 days | The short CHANGE
+File : imu_calib.py, imu_bias.json
+Error : get_accel_data()
+Terminal : The short CHANGE
+
+WHAT HAPPENED
+The short CHANGE.md states "Measured gyro bias and accelerometer offset at rest." The
+snapshot file `imu_calib.py` contains no accelerometer code at all. When the version
+folder was compared against its own description, the claim did not match the artifact.
+
+WHY IT HAPPENED
+At the time of writing, the team had convinced itself that a single resting capture
+gives the accelerometer offset. It does not: at rest the accelerometer reads the gravity
+vector plus offsets. A single orientation gives three equations (ax = gx_comp + ox,
+etc.) with one known vector magnitude, which is underdetermined for three axis offsets.
+Only a six-position turn-over (each axis pointed at gravity in turn, six captures) or a
+second independent orientation can solve for all three offsets. The claim in the short
+CHANGE.md was aspirational shorthand, and it silently overstated what shipped.
+
+FIX (took 3 days)
+We fixed the documentation debt, not the code: the snapshot is the truth, the
+description was corrected to gyro-only, and the accel offset capture is explicitly
+re-scoped as the seam of v3.2, where the complementary filter first consumes tilt and
+where a multi-orientation capture can be done properly. This is the change that turned a
+contradiction into a bridge.
+
+---
+
+E0009 | v3.1 | SMALL | Found Day 61 | Fixed in 3 days | we ran the capture immediately at power-on and saw a bias estimate of +6.4 deg/s
+File : imu_calib.py
+Error : imu_calib.py
+Terminal : we ran the capture immediately at power-on and saw a bias estimate of +6.4 deg/s
+
+WHAT HAPPENED
+Early in Day 61 we ran the capture immediately at power-on and saw a bias estimate of
++6.4 deg/s on the Z axis — absurdly high compared with the v3.0 logs.
+
+WHY IT HAPPENED
+This is the v3.0 error recurring by omission: after power-on, the MPU6050's charge pump,
+PLL, and low-pass filter settle, and reads in that window are not representative of
+steady state. The 1.0 s sleep plus 100-sample discard in `imu_calib.py` is exactly the
+protocol v3.0 taught us, and skipping it — even by a couple of seconds — re-admits the
+garbage.
+
+FIX (took 3 days)
+The shipped file already contains both protections. We verified them by comparing the
+mean with and without the discard: without it, the bias estimate was +6.4 deg/s; with
+it, +1.1 deg/s.
+
+---
+
+E0010 | v3.1 | SMALL | Found Day 61 | Fixed in 3 days | A prototype variant used N =
+File : imu_calib.py
+Error : The 25-second dead end: N = 5000 bought almost nothing
+Terminal : A prototype variant used N =
+
+WHAT HAPPENED
+A prototype variant used N = 5000 (about 25 s of capture) hoping for a sqrt(25) = 5x
+improvement in bias precision. The measured standard error went from 0.030 to 0.028
+deg/s.
+
+WHY IT HAPPENED
+The capture window had crossed from the white-noise regime into the low-frequency (rate
+random walk / bias instability) regime of the sensor noise. In the white regime the
+sqrt(N) law applies; past the plateau the bias itself is slowly wandering, so extra
+samples just average a moving target. This is the Allan-variance insight in its cheapest
+form, and it validated the 1 s window: N = 200 at 5.5 ms spacing sits comfortably inside
+the white-noise regime, where the sqrt(N) law is still honest.
+
+FIX (took 3 days)
+We kept N = 200 and documented the plateau behavior in the design log as the reason
+longer captures are waste in this version.
+
+---
+
+E0011 | v3.1 | SMALL | Found Day 61 | Fixed in 3 days | not 200 Hz
+File : imu_calib.py
+Error : time.sleep(0.005)
+Terminal : not 200 Hz
+
+WHAT HAPPENED
+A code review flagged that `time.sleep(0.005)` plus I2C read overhead means the real
+sample rate is near 170-180 Hz, not 200 Hz, and that Linux scheduling could add
+occasional 50-100 ms hiccups on the Pi.
+
+WHY IT HAPPENED
+There is no bug here; there is a misconception risk. The conception "200 Hz means
+precise timing" is what would have caused a bad estimator (e.g., treating samples as a
+waveform and computing spectral estimates) later. The mean is immune, so the jitter is
+accepted and documented.
+
+FIX (took 3 days)
+None needed in code. We added the note to the design log that Allan-variance tooling, if
+ever built, must log monotonic timestamps and cannot trust the sleep-derived spacing.
+
+---
+
+E0012 | v3.1 | SMALL | Found Day 63 | Fixed in 1 day | someone tapped the robot's bumper halfway through a capture run. The resulting b
+File : imu_calib.py
+Error : The jostled-table risk: the plain mean has no outlier defense
+Terminal : someone tapped the robot's bumper halfway through a capture run. The resulting b
+
+WHAT HAPPENED
+In a stress rehearsal on Day 63, someone tapped the robot's bumper halfway through a
+capture run. The resulting bias estimate was +0.42 deg/s on Z versus +0.11 deg/s on the
+clean run — a 0.31 deg/s swing, roughly 15x the estimator's standard error and several
+times the repeatability criterion.
+
+WHY IT HAPPENED
+The estimator we chose for jitter immunity — a plain mean — has no mechanism to
+distinguish a genuine impulse (the tap) from signal. The choice of a mean over a median
+was a deliberate trade of robustness for simplicity and jitter immunity, and the trade's
+price is exactly this failure mode.
+
+FIX (took 1 day)
+We accepted the risk and added a defense outside the estimator: the operator instruction
+"calibrate with the robot still, no hands on the frame", the console print of the bias
+for a human sanity check, and the 0.05 deg/s repeatability test as a post-hoc tripwire —
+if two consecutive captures disagree by more than the criterion, re-capture. The 0.31
+deg/s swing would trip that wire immediately, which is the correct failure semantics for
+a 5 s boot step.
+
+---
+
+## v3.2 - COMPLEMENTARY FILTER: FUSING ACCELEROMETER AND GYRO FOR DRIFT-FREE TILT (Day 64)
+
+TOTAL ERROR : 8
+SMALL : 7
+BIG : 1
+
+E0013 | v3.2 | BIG | Found Day 64 | Fixed in 1 day | bench
+File : complementary.py
+Error : 1 — The 1-second lag on tilt changes at alpha = 0.98
+Terminal : bench
+
+WHAT HAPPENED
+tilting the robot on the bench, the printed roll/pitch lagged the physical motion by
+roughly one second; the numbers kept drifting toward the final value long after the
+physical motion had stopped. The effect was most visible on a rapid snap tilt: the print
+would start moving only after the motion was over.
+
+WHY IT HAPPENED
+the filter constant was chosen "safely high" in the belief that more gyro weight meant
+more smoothness, without checking the convergence speed. The changelog's phrase —
+"1-second lag on tilt changes" — is the observable; the mechanism is the exponential
+time constant dt·alpha/(1-alpha) ≈ 0.5 s.
+
+INVESTIGATION (only for BIG errors)
+we timed the loop (the measured dt printed alongside the angles showed ~10 ms, ruling
+out H1). We re-read the accelerometer directly and compared its instantaneous value with
+the filter output; the raw accelerometer responded instantly to the tilt (ruling out
+H2). That left H3, confirmed by the math: at alpha = 0.98 the accelerometer weight per
+step is only 2%, so the filter time constant is ~0.5 s and it takes several time
+constants (~1 s) to visibly converge.
+
+FIX (took 1 day)
+lower alpha to 0.92, cutting the time constant to ~0.115 s — a ~4x faster response, at
+the cost of letting more accelerometer noise through. The noise cost was measured (AC3,
+jitter ≤ 3 deg) and accepted.
+
+---
+
+E0014 | v3.2 | SMALL | Found Day 64 | Fixed in 1 day | during the physical rotation test
+File : complementary.py
+Error : -a["x"]
+Terminal : during the physical rotation test
+
+WHAT HAPPENED
+during the physical rotation test, tipping the robot's nose up produced a *negative*
+pitch readout.
+
+WHY IT HAPPENED
+the sensor's frame of reference did not align with the robot's chosen frame. A physical,
+not a software, mismatch. This is the classic mounting-polarity trap, and it is exactly
+why AC4 (physical rotation test) was written.
+
+FIX (took 1 day)
+re-mount the IMU so its x-axis points forward (or, equivalently, negate x in the
+formula). We chose re-mounting because keeping the sensor'ss datasheet convention in the
+code is less error-prone than carrying an in-code sign flip that future maintainers
+would trip over.
+
+---
+
+E0015 | v3.2 | SMALL | Found Day 64 | Fixed in 1 day | bench
+File : complementary.py
+Error : 3 — The estimate jittered on bench taps at very low alpha
+Terminal : bench
+
+WHAT HAPPENED
+in an exploratory sweep with alpha = 0.80, tapping the bench caused roll/pitch to jump
+several degrees.
+
+WHY IT HAPPENED
+purely the trade-off: too much accelerometer weight leaks linear-acceleration noise. The
+changelog's chosen 0.92 sits in the region where taps stay under the ±3 deg criterion.
+The mechanism is worth stating precisely: a tap is a *linear* impulse, and the
+accelerometer cannot distinguish it from gravity; the only defense is to weight the
+accelerometer's voice down — which is exactly what (1-alpha) does. The filter is not
+"rejecting" the tap; it is choosing to trust the gyro's immunity to linear shocks, which
+is the correct physical preference.
+
+FIX (took 1 day)
+settle on 0.92 and measure; do not tune by feel toward either extreme.
+
+---
+
+E0016 | v3.2 | SMALL | Found Day 64 | Fixed in 1 day | SSH
+File : complementary.py
+Error : last
+Terminal : SSH
+
+WHAT HAPPENED
+after the robot idled (loop paused by SSH session) for many seconds, the first angle
+update after resume jumped unrealistically.
+
+WHY IT HAPPENED
+the filter integrates "whatever dt has passed," which is correct for a live loop and
+wrong after a stall. A live-loop filter must bound dt (clamp it) to the expected period.
+
+FIX (took 1 day)
+clamp dt to a maximum (e.g., 0.1 s) so a stall cannot inject a giant integration step.
+(The v3.2 snapshot does not yet show the clamp — the changelog-era fix added it in the
+layer version; the fix is recorded here for completeness.) Note the subtlety: clamping
+dt is *not* the same as dropping the frame. The accelerometer anchor term still runs
+every loop, so after a stall the estimate re-converges to the absolute tilt within a few
+time constants. The clamp only prevents the gyro path from hallucinating a huge angle
+during the gap.
+
+---
+
+E0017 | v3.2 | SMALL | Found Day 64 | Fixed in 1 day | on a cold boot
+File : complementary.py
+Error : time.sleep(1.0)
+Terminal : on a cold boot
+
+WHAT HAPPENED
+on a cold boot, the first printed angles sometimes sat at the wrong value for a second
+or more before converging, and occasionally the very first prints showed a brief
+flat-line (all zeros).
+
+WHY IT HAPPENED
+the MPU6050's registers are not fully valid immediately after power-up; the sensor's
+internal reference settles over some hundreds of milliseconds. The v3.0-era code had
+tried a `time.sleep(1.0)` to wait it out, but a sleep blocks the loop and does not
+*discard* the bad reads; the first values after the sleep were still occasionally stale.
+The fix in the changelog era was to replace the passive wait with an *active drain*:
+read and discard a fixed number of samples (the 100-read warmup loop), which both waits
+and flushes.
+
+FIX (took 1 day)
+the `for _ in range(100): mpu.get_accel_data(); mpu.get_gyro_data()` loop — active
+draining rather than blind sleeping.
+
+---
+
+E0018 | v3.2 | SMALL | Found Day 64 | Fixed in 1 day | the design review
+File : complementary.py
+Error : design rejected: Alternative A — Gyro integration only
+Terminal : the design review
+
+WHAT HAPPENED
+Integrate gyro rate, trust calibration forever. Strengths: simplest possible code.
+Weaknesses: unbounded drift — at even 0.05 deg/s residual bias, a 2-minute race
+accumulates 6 degrees of error, which at a 20 cm lever arm is over 2 cm of ToF error.
+Rejected on the first-principles drift math.
+
+WHY IT HAPPENED
+Weaknesses: unbounded drift — at even 0.05 deg/s residual bias, a 2-minute race
+accumulates 6 degrees of error, which at a 20 cm lever arm is over 2 cm of ToF error.
+Rejected on the first-principles drift math.
+
+FIX (took 1 day)
+replaced by Alternative C — Complementary filter (chosen)
+
+---
+
+E0019 | v3.2 | SMALL | Found Day 64 | Fixed in 1 day | the design review
+File : complementary.py
+Error : design rejected: Alternative B — Accelerometer tilt only
+Terminal : the design review
+
+WHAT HAPPENED
+Use only `atan2` of the accelerometer. Strengths: no drift at all, trivial code.
+Weaknesses: every acceleration contaminates the reading. The robot spends its life
+accelerating and braking; the tilt signal would be unusable during exactly the maneuvers
+that need distance correction. Rejected.
+
+WHY IT HAPPENED
+Strengths: no drift at all, trivial code. Rejected.
+
+FIX (took 1 day)
+replaced by Alternative C — Complementary filter (chosen)
+
+---
+
+E0020 | v3.2 | SMALL | Found Day 64 | Fixed in 1 day | the design review
+File : complementary.py
+Error : design rejected: Alternative E — Magnetometer-aided heading, skip tilt
+Terminal : the design review
+
+WHAT HAPPENED
+Ignore tilt entirely and use the magnetometer for orientation. Strengths: absolute
+heading. Weaknesses: the magnetometer on this MPU6050 board was deliberately disabled
+(per the hardware plan, the IMU is used without magnetometer), and heading is not the
+same problem as tilt. The ToF sensors need *tilt* correction, not heading. Rejected as
+solving the wrong problem.
+
+WHY IT HAPPENED
+Rejected as solving the wrong problem.
+
+FIX (took 1 day)
+replaced by Alternative C — Complementary filter (chosen)
+
+---
+
+## v3.3 - V3.3 (Day 67)
+
+TOTAL ERROR : 4
+SMALL : 3
+BIG : 1
+
+E0021 | v3.3 | BIG | Found Day 67 | Fixed in 1 day | bench
+File : gyro_heading.py
+Error : heading_error = atan2(D_sin, B_earth + D_cos)
+Terminal : bench
+
+WHAT HAPPENED
+On Day 67, with the magnetometer on the MPU6050 bus and the robot still, the heading
+read a smooth, plausible value that agreed with a physical protractor on the bench to
+within ~2°. The instant any throttle was applied — even 20% PWM, no load — the heading
+swung 30–90°, and the swing followed the throttle sign: forward leaned it one way,
+reverse the other. At full throttle the swing was large enough that the heading was
+statistically meaningless. The servo was worse: at stall it produced a discrete *jump*
+of 10–25° that persisted while the servo held torque. **Initial hypotheses** (in the
+order we guessed them, all incomplete): 1. *EMI in the I2C lines.* The motor current
+pulses at PWM frequency next to the I2C signal pair; maybe the magnetometer's register
+reads were being corrupted into garbage. Plausible — v2.3's protocol existed precisely
+because of EMI. 2. *Ground-loop noise on the magnetometer's supply.* A shared ground
+between the motor driver and the sensor making the magnetometer's internal ADC see a
+moving reference. 3. *A real magnetic disturbance from the motor.* The brushed motor's
+field vector adding to Earth's field at the sensor.
+
+WHY IT HAPPENED
+The brushed motor's field — permanent magnets (hard iron) plus current-wound coils
+(dynamic soft iron) — produces a dipole at the sensor mounting point comparable to or
+larger than Earth's field. Heading is `atan2` of the horizontal field components; the
+disturbance vector rotates the sum, and the heading reads the rotated sum. Because the
+dynamic component scales with current, the error changes with every throttle tick and
+reverses with direction. No static calibration can remove a term that is a function of
+the instantaneous current; no filter can repair a channel that is this displaced,
+because the displacement looks exactly like a real heading change.
+
+INVESTIGATION (only for BIG errors)
+We logged magnetometer heading and throttle together at 100 Hz. The heading trace was
+*smooth* — not a noisy mess. It moved monotonically with current and returned when the
+throttle returned, with no glitch signature. That killed hypothesis 1 (EMI would show as
+bit-flip spikes, not smooth excursions) and hypothesis 2 (ground noise would show as
+jitter at PWM frequency). The data said the sensor was *honestly measuring a moving
+field*. We then did the decisive experiment: we held the throttle constant, so current
+was constant, and walked the robot around with the motor still pulling — the heading
+tracked the physical rotation cleanly, offset by a constant that depended on throttle.
+That is the signature of a *static disturbance vector added to Earth's field*:
+`heading_error = atan2(D_sin, B_earth + D_cos)`, which at `D ≈ 30 µT` and `B_earth ≈ 45
+µT` is tens of degrees (C2's arithmetic). A field of ~30 µT at ~15 cm from a brushed
+motor carrying 1–2 A is exactly what Ampere's law predicts for a dipole of that size.
+
+FIX (took 1 day)
+`enable_magnetometer=false` in the config — permanently, not "until we fix the cabling".
+The magnetometer was removed from the heading path and the robot now derives heading
+from the gyro's z-axis integration with the corner-reset contract (section 5.5). The
+disable is a *decision recorded in config*, so a future engineer cannot silently
+re-enable a corrupt sensor out of curiosity.
+
+---
+
+E0022 | v3.3 | SMALL | Found Day 67 | Fixed in 1 day | bench
+File : imu_bias.json
+Error : yaw += math.radians(z - bias) * dt
+Terminal : bench
+
+WHAT HAPPENED
+After the magnetometer was disabled, the first gyro-only heading, run at rest on the
+bench, *still* turned slowly: about 0.06°/s, i.e. 3.6° over a simulated 60-second lap,
+printed as a steady ramp. The robot was not moving; the heading was lying. The original
+CHANGE.md does not mention this, but it was the moment the integration math met the
+measured bias.
+
+WHY IT HAPPENED
+C1, mechanically: a constant rate of 0.058°/s integrates to 3.6°/60 s no matter how
+clean the loop is. The scaffold file (section 7.6) integrates raw z, so the bias passes
+straight through. The corner-reset contract is designed to absorb this, but at *rest*
+there are no corners, so the raw scaffold shows the full unbounded integral — a useful
+demonstration that the reset is load-bearing, not decorative.
+
+FIX (took 1 day)
+Two-part, matching the contract: (a) the one-line bias subtraction (`yaw +=
+math.radians(z - bias) * dt` with `bias` from the venue `imu_bias.json`) is the
+production change v3.4 applies; (b) the corner reset remains as the safety net that
+makes even the raw scaffold survivable for one lap (3.6° < AC2's 5°). Both were
+verified: after subtraction, rest drift dropped to 0.008°/s (0.5° per lap, AC2 pass);
+without it, the reset absorbed the 3.6° with 1.4° of margin.
+
+---
+
+E0023 | v3.3 | SMALL | Found Day 67 | Fixed in 1 day | a slow manual rotation past 180°
+File : gyro_heading.py
+Error : 179.9 deg
+Terminal : a slow manual rotation past 180°
+
+WHAT HAPPENED
+During a slow manual rotation past 180°, the printed heading jumped from `179.9 deg` to
+`-179.9 deg` cleanly (good), but on one earlier prototype — before the `atan2` line
+existed — it printed `+359.8 deg`, and downstream consumers reading the number would
+have seen a full rotation where only 0.4° had turned. AC3 was written precisely for this
+moment.
+
+WHY IT HAPPENED
+The integral is unbounded by construction (C1 again). Without an explicit wrap, the
+angle representation grows with every lap the robot turns — after two laps of corners it
+sits near 720° — and consumers that assume a bounded angle break at the crossing. The
+fix is a *representation* decision, not a maths decision: `atan2(sin, cos)` folds the
+angle onto the circle so the number is always a heading, never a revolution count.
+
+FIX (took 1 day)
+The `atan2` normalisation line (7.4) entered the snapshot. Verified by rotating the
+bench fixture through ±5 rotations; the printed stream stayed in (−180, 180] with no
+jump larger than the 0.1° print resolution.
+
+---
+
+E0024 | v3.3 | SMALL | Found Day 67 | Fixed in 1 day | The first closed-loop test of the
+File : gyro_heading.py
+Error : dt = 0.010
+Terminal : The first closed-loop test of the
+
+WHAT HAPPENED
+The first closed-loop test of the heading-hold PID (re-using v2.4's gains) with the
+*assumed* `dt = 0.010` showed a consistent rightward drift in tight turns: the robot
+exited a 90° corner with a heading that was persistently ~2° short of the commanded
+value. It looked like a PID tuning error or a steering lag — exactly the kind of ghost
+that eats days.
+
+WHY IT HAPPENED
+C4 in the flesh: `time.sleep(0.01)` is a *ceiling* on cadence, and assuming it equals
+`dt` converts scheduler jitter into a systematic integration gain error that is
+proportional to the real duty cycle of the loop. The tighter the loop gets (more work
+per tick), the more the assumed `dt` understates the true gap, and the error grows with
+the actual turn rate — so it hides in exactly the corners where it hurts.
+
+FIX (took 1 day)
+The measured-`dt` pattern that is already in the snapshot (`dt = time.time() - last;
+last = time.time()`) — R4, shipped before this bug was fully diagnosed, and confirmed to
+eliminate the systematic component. With measured `dt`, the integrator is exact
+regardless of scheduling; the residual is the zero-mean clock noise, which is
+negligible.
+
+---
+
+## v3.4 - TOF DISTANCE READING: TRUSTING NOTHING, MEASURING PHOTONS (Day 69)
+
+TOTAL ERROR : 8
+SMALL : 7
+BIG : 1
+
+E0025 | v3.4 | BIG | Found Day 69 | Fixed in 1 day | bench
+File : tof_read.py
+Error : .range
+Terminal : bench
+
+WHAT HAPPENED
+On the bench we placed a target at 0.25 m and read a clean 250 mm. We moved the target
+out to 2 m (beyond the L1X short-mode ceiling of ~1.3 m) and the sensor read exactly
+**0**. Not a small value, not a jittery value — exactly zero, on every poll. At 3 m and
+4 m, still 0. The L0X sides did the same: point them at an open field, and `.range`
+returned exactly 0. In a naive reading, that 0 is indistinguishable from "the wall is
+touching the bumper." A downstream controller — which we were about to build in v4.x —
+would slam the brakes and steer away from a "wall" that did not exist. Worse, during a
+preliminary drive test, the robot passed a gap between two walls; the front read 0
+through the gap and the prototype wall-follow logic twitched violently.
+
+WHY IT HAPPENED
+The ST ToF firmware's reporting contract is: if the SPAD histogram has no peak above the
+noise threshold, the device reports a distance of **0** with an internal status of "no
+target" — the Adafruit library surfaces the raw 0 without a validity bit, and the L1X's
+`data_ready` only means "a ranging cycle completed", not "a valid target was found." A 0
+mm distance is physically impossible for these devices (L1X minimum ranging distance ≈
+40 mm in short mode; L0X ≈ 30 mm), so 0 can *only* mean "no target". The bug was not in
+the hardware and not in the library — it was in **our model**: we assumed the numeric
+output alone was meaningful, when in fact validity is a *second channel* that the API
+encodes as 0. We conflated "measurement completed" with "measurement valid", and the
+physical mechanism was a histogram with no detectable peak — which happens on any truly
+open space beyond the mode ceiling, and through any gap wider than the FoV footprint.
+
+INVESTIGATION (only for BIG errors)
+We built a ruler-and-target rig: a flat white card at measured distances, and we logged
+the raw driver outputs — the `distance` float, the `data_ready` flag for the front, and
+the L0X `.range` integer — without any of our clamping. At 0.25 m: 250–252. At 1.0 m:
+1000–1004. At 1.3 m: right at the ceiling, values began flickering. At 1.5 m+: solid 0.
+Crucially, `data_ready` stayed **True** even when `distance` was 0 — the sensor
+*finished its cycle*; it just found no photon peak to report. We also checked the bus: a
+logic-level inspection showed clean ACKs and no bus errors at the moment of the 0s. That
+killed hypothesis (1) (no bus fault) and (2) (misalignment would have given noisy small
+values at *all* distances, not clean 0s beyond a cliff).
+
+FIX (took 1 day)
+Exactly the line we later shipped: `return cm * 10.0 if cm and cm > 0 else -1.0` and
+`return mm if mm and mm > 0 else -1.0`. Every 0, every `None`, and every impossible
+negative collapses to the explicit **-1.0** sentinel, so no downstream consumer can ever
+confuse "no target" with "target at zero". For the front we additionally gate on
+`data_ready` so a not-yet-completed cycle also yields -1.0.
+
+---
+
+E0026 | v3.4 | SMALL | Found Day 69 | Fixed in 1 day | the first verification run we placed
+File : tof_read.py
+Error : adafruit_vl53l1x.VL53L1X.distance
+Terminal : the first verification run we placed
+
+WHAT HAPPENED
+During the first verification run we placed the target at 0.25 m and the front reported
+**25 mm**. For a moment we believed the front sensor was hopelessly inaccurate.
+
+WHY IT HAPPENED
+Two drivers from the same vendor family expose different units because they wrap two
+different ST APIs with different native units (the L1X API's default unit is cm, the L0X
+API's is mm). We had written the side reader in native mm and the front reader in native
+cm and compared them side by side on the same print line — a comparison across
+mismatched units.
+
+FIX (took 1 day)
+`return cm * 10.0 if cm and cm > 0 else -1.0` — normalise the front to millimetres at
+the driver boundary, in the *same line that produces the value*, so the conversion
+cannot be forgotten by a later caller.
+
+---
+
+E0027 | v3.4 | SMALL | Found Day 69 | Fixed in 1 day | roughly 1 in 20 power-ups
+File : tof_read.py
+Error : time.sleep(0.02)
+Terminal : roughly 1 in 20 power-ups
+
+WHAT HAPPENED
+Intermittently — roughly 1 in 20 power-ups — the *first* read after XSHUT went high
+failed with an I2C bus error: the device did not ACK the address byte. The same sensor
+read fine on the next attempt.
+
+WHY IT HAPPENED
+After XSHUT is raised, the VL53 sensors run a boot sequence and only then bring up their
+I2C interface. Polling before the interface is ready produces a NACK. The datasheet's
+boot-to-ready figure is a typical, not a worst-case; a 5 ms wait raced the boot, and the
+first access lost.
+
+FIX (took 1 day)
+The 20 ms settle (`time.sleep(0.02)`) on every XSHUT raise, kept deliberately
+conservative.
+
+---
+
+E0028 | v3.4 | SMALL | Found Day 69 | Fixed in 1 day | With *two* side sensors powered simultaneously
+File : tof_read.py
+Error : The crosstalk preview (deliberately not fully fixed here)
+Terminal : With *two* side sensors powered simultaneously
+
+WHAT HAPPENED
+With *two* side sensors powered simultaneously during one experimental run, the left
+occasionally reported a phantom distance — a value that corresponded to nothing in its
+FoV. This was a preview of the exact bug that v3.5 documents as its headline error.
+
+WHY IT HAPPENED
+Two ToF emitters firing in the same chassis can see each other's reflections off nearby
+surfaces — a second light source at a different distance produces a second peak in the
+SPAD histogram, and the device may lock onto it. This is crosstalk, a hardware-level
+interference that software filtering only poorly masks. **Why we did not fully fix it in
+v3.4.** Because our chosen schedule — one sensor powered at a time via XSHUT — *prevents
+it by construction*: only one emitter exists at any instant, so there is nothing to
+crosstalk with. We saw the phantom only in the experimental variant where we broke our
+own schedule to test concurrency. The decision we made in Section 5.5 (sequential
+power-cycling) turned out to be prophylactic against a failure we had not yet fully
+understood. v3.5 then had to hold the line on strict sequencing when someone proposed
+parallelism for speed — and its CHANGE.md records the crosstalk
+
+FIX (took 1 day)
+The lesson lands in Section 11. ---
+
+---
+
+E0029 | v3.4 | SMALL | Found Day 69 | Fixed in 1 day | the design review
+File : tof_read.py
+Error : design rejected: Alternative B — three identical VL53L0X
+Terminal : the design review
+
+WHAT HAPPENED
+One driver, cheapest total cost, proven library (`adafruit_vl53l0x`). Honest analysis:
+the L0X ceiling is ~2 m datasheet, typically ~1.2 m realistic indoor. The front at 1.8
+m/s needs 0.8–1.0 m *reliable*; a sensor whose realistic ceiling collapses at exactly
+the distance we must depend on is the wrong part for the highest-stakes reading on the
+robot. Also the L0X exposes no `data_ready` equivalent in the Adafruit library the way
+the L1X does — validity is harder to read out. Rejected on the front, where we need
+margin, but the sides were always going to be L0X.
+
+WHY IT HAPPENED
+Rejected on the front, where we need margin, but the sides were always going to be L0X.
+
+FIX (took 1 day)
+replaced by Alternative C — mixed: one VL53L1X front + two VL53L0X sides (CHOSEN)
+
+---
+
+E0030 | v3.4 | SMALL | Found Day 69 | Fixed in 1 day | the design review
+File : tof_read.py
+Error : design rejected: Alternative D — ultrasonic (HC-SR04 or similar)
+Terminal : the design review
+
+WHAT HAPPENED
+Cheap, no I2C address problem, works outdoors. Honest analysis: 40 kHz bursts have a
+wide cone (≈15° each way), they ping-pong between three emitters (cross-echoes are
+infamous), they resolve to ~1 cm at best, and their reading depends on the target's
+angle and acoustic reflectivity. On a track with metal-look surfaces and pillars at
+shallow angles, ultrasonic gives us centimetres and false echoes — a downgrade from the
+millimetre primitive the whole phase is about. Rejected; the phase literally exists to
+get millimetres.
+
+WHY IT HAPPENED
+Rejected; the phase literally exists to get millimetres.
+
+FIX (took 1 day)
+replaced by Alternative C — mixed: one VL53L1X front + two VL53L0X sides (CHOSEN)
+
+---
+
+E0031 | v3.4 | SMALL | Found Day 69 | Fixed in 1 day | the design review
+File : tof_read.py
+Error : design rejected: Alternative E — monocular camera depth / vision range
+Terminal : the design review
+
+WHAT HAPPENED
+We already own a 640×480@30fps camera. Honest analysis: monocular depth from a single
+view requires either known marker size (we have markers, so *marker distance* is
+feasible later) or structure-from-motion that a Pi 4B cannot sustain at 30 fps alongside
+HSV pillar detection. The marker-distance path is genuinely valuable and we did not
+throw it away — it is *deferred*, not rejected, and it reappears in the fusion versions.
+But as a general *wall* distance source it fails: white wall on white wall gives no
+feature to triangulate. Rejected for this version, with the marker-distance variant
+explicitly parked for v5.x.
+
+WHY IT HAPPENED
+Honest analysis: monocular depth from a single view requires either known marker size
+(we have markers, so *marker distance* is feasible later) or structure-from-motion that
+a Pi 4B cannot sustain at 30 fps alongside HSV pillar detection. The marker-distance
+path is genuinely valuable and we did not throw it away — it is *deferred*, not
+rejected, and it reappears in the fusion versions. But as a general *wall* distance
+source it fails: white wall on white wall gives no feature to triangulate. Rejected for
+this version, with the marker-distance variant explicitly parked for v5.x.
+
+FIX (took 1 day)
+replaced by Alternative C — mixed: one VL53L1X front + two VL53L0X sides (CHOSEN)
+
+---
+
+E0032 | v3.4 | SMALL | Found Day 69 | Fixed in 1 day | the design review
+File : tof_read.py
+Error : design rejected: Alternative F — analog IR rangefinder (GP2Y0A21-class)
+Terminal : the design review
+
+WHAT HAPPENED
+Simple, no bus, one analogue pin per sensor. Honest analysis: it is a *triangulation*
+device, nonlinear (inverse-law voltage), has a dead near-zone, is temperature sensitive,
+and its ~10–80 cm span is too short for front look-ahead. It would also eat three ADC
+channels and require per-unit calibration curves. The nonlinearity alone kills it: we
+would be doing in software what the VL53L1X does in silicon with a histogram. Rejected.
+
+WHY IT HAPPENED
+Honest analysis: it is a *triangulation* device, nonlinear (inverse-law voltage), has a
+dead near-zone, is temperature sensitive, and its ~10–80 cm span is too short for front
+look-ahead. Rejected.
+
+FIX (took 1 day)
+replaced by Alternative C — mixed: one VL53L1X front + two VL53L0X sides (CHOSEN)
+
+---
+
+## v3.5 - MULTI-TOF FUSION (Day 72-75)
+
+TOTAL ERROR : 5
+SMALL : 4
+BIG : 1
+
+E0033 | v3.5 | BIG | Found Day 72 | Fixed in 4 days | running v3.4's `tof_read.py` in a two-board bench rig with a front VL53L1X and t
+File : tof_read.py
+Error : data_ready
+Terminal : running v3.4's `tof_read.py` in a two-board bench rig with a front VL53L1X and t
+
+WHAT HAPPENED
+On Day 72, running v3.4's `tof_read.py` in a two-board bench rig with a front VL53L1X
+and two side VL53L0X aimed at a painted wall at ~230 mm and ~240 mm, the side channels
+intermittently returned values with no corresponding object: 812 mm, 14 mm, 65,535, 8
+mm, in bursts of 2–4 bad readings followed by a run of correct ones. The front channel
+was mostly clean. The phantoms were *plausible-looking* distances — 812 mm is a
+believable wall gap, 14 mm a believable near-wall — not NaN or a repeated sentinel. A
+naive consumer would have steered toward a wall at 14 mm or braked for a wall at 812 mm.
+
+WHY IT HAPPENED
+With both L0X powered, both answer at 0x29. Writes to one appear on both; reads from
+"the" device are a time-multiplexed blend of two different ranging states. When the
+driver reads a measurement register, it can receive a register image from either device,
+or an arbitration-corrupted byte stream (the 65,535 = 0xFFFF and 0-valued reads are
+classic bus-collision artifacts: a byte read at the instant both devices drive SDA
+simultaneously produces a wired-AND of two different bits). Each L0X emits a 940 nm
+pulse train; with two emitters firing in the same integration window, photons from
+sensor B reflect once off the wall and land in sensor A's SPAD aperture. The sensor's
+time-of-flight histogram then shows a second peak at a distance that corresponds to the
+*reflected* path of B's light (twice the wall gap or a longer oblique path — hence
+"plausible" values like 812 mm), and the ranging logic reports a blended or spurious
+distance. Because the two L0X use identical pulse schedules, the interference is
+systematic, not random, which is why it produced *bursts* of bad values rather than
+isolated outliers. The two mechanisms are independent in physics but shared in remedy:
+power at most one VL53 at any instant. With one device powered, there is one 0x29 owner
+(no collision) and one emitter (no optical coupling). The VL53L0X pair shared a default
+I2C address 0x29 and shared the air as emitters; powering them simultaneously on one bus
+produced both bus-collision corruption and optical crosstalk, whose blended result was
+plausible-looking phantom distances.
+
+INVESTIGATION (only for BIG errors)
+We instrumented in stages. First we removed the front sensor entirely — XSHUT D22 held
+low — and the side phantoms continued, killing H1 and narrowing the suspects to the two
+VL53L0X. Left alone: clean ~230 mm, zero phantoms in 1,000 samples. Right alone: clean
+~240 mm. Both powered simultaneously: the phantoms returned, 47 corrupted or phantom
+values in 200 samples — a 23.5% corruption rate. Conclusive at the level of "it happens
+only when both are on," but not yet *why*. The datasheet was the turning point: the
+VL53L0X defaults to I2C address 0x29, and its address can only be changed while it is
+the sole powered device on the bus. We had two 0x29 devices powered at once. The moment
+of insight — written verbatim in the Day 73 notes as "the collision and the photons are
+the same bug" — was that the phantom had two simultaneous mechanisms, and the same fix
+kills both:
+
+FIX (took 4 days)
+Strict sequential XSHUT power cycling. In the layer's `_read_*` methods, exactly one
+XSHUT pin is asserted at a time: front D22 high → 20 ms settle → VL53L1X with
+`timing_budget = 33` ms → read → low; then left D17 → 20 ms → VL53L0X read → low; then
+right D27 → 20 ms → VL53L0X read → low. The 20 ms stagger exceeds the VL53L0X
+power-on-to-I2C-ready spec, and the 33 ms front budget keeps the front read both fast
+enough (≈ 40 ms wall clock) and long enough for 2.9–4 m range. After the fix, the same
+two-wall rig logged 0 phantom values in 1,000 samples — a corruption rate drop from
+23.5% to 0.0% (measured < 0.1%, i.e., none).
+
+---
+
+E0034 | v3.5 | SMALL | Found Day 73 | Fixed in 3 days | we spent ~4 hours implementing and tuning software filters for the side channels
+File : layer1_sensors.py
+Error : Our own dead end: we believed software filtering could fix
+Terminal : we spent ~4 hours implementing and tuning software filters for the side channels
+
+WHAT HAPPENED
+Not a robot failure — a process failure. On the morning of Day 73 we spent ~4 hours
+implementing and tuning software filters for the side channels before the datasheet
+insight. A 5-point median removed isolated spikes but not the bursty phantoms; a 3-point
+EWMA with α = 0.3 smoothed the trace but delayed the response by ~2 epochs (≈ 340 ms),
+which is 61 cm of decision lag at 1.8 m/s. We measured the residual: after filtering, 11
+of 200 samples were still wrong by more than 40 mm, and — the damning part — the filters
+could not distinguish a phantom from a real wall at 14 mm, because a phantom *is* a real
+measurement of a wrong target.
+
+WHY IT HAPPENED
+We were treating a cause-level problem (two emitters in the same integration window) as
+an effect-level problem (bad values). No value-domain filter can reconstruct a distance
+from a time-of-flight histogram that was never computed correctly; the sensor faithfully
+measured a real second reflection, and the filter faithfully averaged a real (wrong)
+number.
+
+FIX (took 3 days)
+Stop filtering; re-derive from the datasheet; sequence the hardware. The fix is Error
+1's fix, and the filter code was deleted.
+
+---
+
+E0035 | v3.5 | SMALL | Found Day 74 | Fixed in 2 days | 's instrumentation with `time.monotonic
+File : layer1_sensors.py
+Error : time.monotonic()
+Terminal : 's instrumentation with `time.monotonic
+
+WHAT HAPPENED
+The first timing ledger we drew (before measuring) claimed the poll cycle was ~20 ms:
+three quick reads plus a 10 ms sleep. Day 74's instrumentation with `time.monotonic()`
+stamps on 100 consecutive cycles measured a median cycle of 166 ms (min 139 ms, max 211
+ms) — 8× slower than assumed, an effective poll rate of ~6 Hz, not ~50 Hz. We had been
+reasoning about corner detection and pillar braking with a wrong rate for a full day.
+
+WHY IT HAPPENED
+Sequential XSHUT sequencing inherently serializes power-on settles and ranging windows;
+three sensors × ~55 ms each ≈ 166 ms is the floor for this hardware discipline. The 10
+ms `sleep(0.01)` is a floor on the *idle* gap, not the cycle.
+
+FIX (took 2 days)
+Accept 6 Hz as the ToF epoch; record it in the ledger; size the velocity-dependent error
+(30.6 cm/epoch at 1.8 m/s, 22.7 cm at 1.2 m/s, 8.5 cm arc per epoch at a 0.5 m-radius
+corner) so v4.x's corner and pillar logic is designed for 6 Hz, not 50 Hz.
+
+---
+
+E0036 | v3.5 | SMALL | Found Day 75 | Fixed in 1 day | reading `_poll` line by line
+File : layer1_sensors.py
+Error : _poll
+Terminal : reading `_poll` line by line
+
+WHAT HAPPENED
+Code review on Day 75, reading `_poll` line by line, we noticed: no `try/except`
+surrounds `self._read_front()`, `self._read_left()`, `self._read_right()`. An I2C
+transaction that raises — a bus hang after a motor current transient, an ESD glitch on
+SCL, a device that stops ACKing — would propagate out of `_poll`, killing the daemon
+thread. The thread would vanish silently: `self.running` stays `True`, the flags freeze
+at their last values, and `read_sensors()` keeps returning the same dict with *stale
+flags that still read `True`*, because the thread never ran another cycle to flip them.
+
+WHY IT HAPPENED
+The producer thread was not designed as a failure domain. The fix pattern is well
+understood — per-read `try/except` returning `(None, False)` so a raising read degrades
+to "flag False, keep last good," plus a heartbeat counter so `read_sensors()` can report
+the thread's liveness — but it was deliberately deferred (Section 5.6, item 2) so the
+snapshot stays honest and so v3.6 implements it *with* a real injection test rather than
+a patch-on-the-fly.
+
+FIX (took 1 day)
+6).** Wrap each `_read_*` in `try/except`, return `(-1.0, False)` on any exception, and
+expose a monotonically increasing `self.heartbeat` incremented every `_poll` iteration,
+readable through `read_sensors()` so consumers can detect a dead thread in ≤ 2 poll
+cycles (≤ 340 ms) even if flags look stale-true.
+
+---
+
+E0037 | v3.5 | SMALL | Found Day 74 | Fixed in 2 days | we handed a `ThreadedSensorManager` to a teammate for a quick smoke test; the fi
+File : layer1_sensors.py
+Error : ThreadedSensorManager
+Terminal : we handed a `ThreadedSensorManager` to a teammate for a quick smoke test; the fi
+
+WHAT HAPPENED
+On Day 74 we handed a `ThreadedSensorManager` to a teammate for a quick smoke test; the
+first `read_sensors()` call, before the poll thread had completed a single cycle,
+returned `front_mm = 850.0` with `front_ok = False`. The teammate's reaction — "oh, the
+front wall is 850, good" — was the bug: the flag was `False` and they did not look at
+it.
+
+WHY IT HAPPENED
+Seeding with measured-looking geometry was chosen for graceful fallback, but it quietly
+reintroduced the v3.4 validity lesson in a new form: plausible defaults are
+indistinguishable from measurements unless the truth bit is checked.
+
+FIX (took 2 days)
+We did not change the seed — the fallback behavior is intentional — but we made the
+contract explicit in the docstring and in Section 7.2, and we added
+acceptance-criterion-1's wording: *no consumer may use a distance value without
+consulting its flag.* The flags dict, not the value, is the layer's primary output.
+
+---
+
+## v3.6 - V3.6 (Day 74-76)
+
+TOTAL ERROR : 6
+SMALL : 5
+BIG : 1
+
+E0038 | v3.6 | BIG | Found Day 74 | Fixed in 3 days | 's lunch-break prototype
+File : camera_frames.py
+Error : cap.read()
+Terminal : 's lunch-break prototype
+
+WHAT HAPPENED
+During Day 74's lunch-break prototype — before this version formally started — we ran a
+capture that appended every frame to a Python list for "later analysis." For roughly the
+first 2-4 seconds the counter ticked happily: frames at a plausible 30 FPS. Then, around
+frame 95-110, the counter stopped. `cap.read()` hung: the call did not return, the
+counter froze, and no amount of time brought it back. The pattern was repeatable: warm
+boot, ~100 frames, stall. It looked for all the world like a hardware or driver failure
+— "the camera just dies after a while" — and that is exactly the wrong lesson we
+initially drew.
+
+WHY IT HAPPENED
+V4L2 captures into a small pool of mmap'd buffers — on our Pi build OpenCV's backend
+defaulted to 4, though the exact count is a configuration detail that our experiments
+showed the driver stretching during warmup. Each `cap.read()` dequeues one filled buffer
+and hands us a numpy array that *aliases that buffer's memory*; the driver cannot reuse
+the buffer while our array keeps it alive. Our prototype stored every frame in a list,
+so the list was a growing pile of pinned buffers. The camera produced at 30 FPS; nobody
+released anything; the pool emptied; and the very next `read()` had no free buffer to
+receive the sensor's output, so it blocked indefinitely. The "~100 frames" figure is the
+product of pool size, the driver's warmup grace, and our consumption pattern — the
+precise number was not the lesson; the *linear relationship between retained frames and
+time-to-stall* was. There was no hardware fault. The camera was not dying. We were
+locking its memory out, and it politely stopped rather than overwrite a buffer we were
+still holding — which, perversely, is the driver behaving *correctly*. "a camera is a
+producer with a finite pool; your reference is a lock on its memory."
+
+INVESTIGATION (only for BIG errors)
+We stopped guessing and instrumented. First we ran the prototype with the analysis
+consumer *disabled* (capture into the list, never read) — the stall still happened at
+~100 frames, which ruled out hypothesis 4 and made 1 and 2 look right. Then we ran
+capture with *no list at all*, reading and discarding frames — and it ran for minutes
+without a stall. That was the moment the frame (pun intended): the difference between
+the two runs was not the camera, not the heat, not the driver; it was that one run
+retained references and the other did not. We confirmed the mechanism by printing the
+length of the list at the moment of the stall (it was the expected ~100) and by
+repeating with a bounded list (`list.pop(0)` when it exceeded N) — with N=5 the stall
+came at ~5 frames; with N=1 (overwrite semantics) it never came. The stall count tracks
+the number of *retained* frames. That single experiment collapsed hypotheses 1 and 2
+into the dustbin and pinned hypothesis 3.
+
+FIX (took 3 days)
+Two coordinated changes, exactly as the change note says. First, delete the queue: the
+capture thread now writes to a single `self.frame` slot, overwriting it each successful
+read. Second, ensure buffer release every read: because the slot holds one array,
+assigning the new frame drops the old array's reference, which returns the old buffer to
+the driver pool. The invariant "at most one retained frame" converts the pool-exhaustion
+failure from inevitable to impossible. This is the code that shipped in this snapshot:
+five lines of `_loop`, one slot, `if ret: self.frame = f`.
+
+---
+
+E0039 | v3.6 | SMALL | Found Day 74 | Fixed in 3 days | cold boots
+File : camera_frames.py
+Error : time.sleep(2.0)
+Terminal : cold boots
+
+WHAT HAPPENED
+On cold boots, the first few frames (sometimes the first 1-2 s worth, 30-60 frames) were
+black or heavily darkened, occasionally with a purple-ish cast that a teammate described
+as "the sensor looking at the ceiling." Not a stall — frames arrived, but were unusable.
+
+WHY IT HAPPENED
+The camera's auto-exposure and auto-white-balance loops are not instantaneous; on open
+they start from a default state and integrate the scene over tens to hundreds of
+milliseconds. Any frame read in that window carries the wrong exposure and wrong colour
+balance. It is not a bug in our code, but it *is* a bug in our first prototype, which
+had no warmup and therefore fed the first-second of garbage to any consumer that
+happened to sample in that window.
+
+FIX (took 3 days)
+The 2.0 s warmup `time.sleep(2.0)` at the top of `_loop` before the first `read()`. We
+also agreed a supplementary rule for future vision stages: treat the first N frames
+after boot as untrusted (v3.9 formalizes this with a health/validity flag).
+
+---
+
+E0040 | v3.6 | SMALL | Found Day 76 | Fixed in 1 day | 's first soak runs
+File : camera_frames.py
+Error : print("frame ready:", cam.frame is not None)
+Terminal : 's first soak runs
+
+WHAT HAPPENED
+On Day 76's first soak runs, `print("frame ready:", cam.frame is not None)` occasionally
+printed False even though the camera was clearly working (the counter was climbing).
+Also, a code reviewer flagged `self.frame` as a data race: the capture thread writes it
+while the main loop reads it, with no lock.
+
+WHY IT HAPPENED
+The flaky print: two uncoordinated timing clocks (warmup clock in the thread, sleep
+clock in the main thread) racing with thread-scheduling jitter on a loaded Pi. The race:
+not a memory-safety bug under CPython, but an *unwritten contract* — the code relied on
+GIL atomicity and single-reference discipline without stating either, which is how bugs
+breed in later versions.
+
+FIX (took 1 day)
+For the print: the shipped 3.0 s margin (2.0 s warmup + 1.0 s capture + headroom) was
+already the Day 76 final value and proved deterministic ten runs out of ten once the
+smoke test was measured against the *first-write* timestamp rather than module-import
+time. For the race: no lock was added — adding `threading.Lock` around the slot would
+have cost ~100 ns per access at 100 Hz (negligible) but added a real risk of someone
+holding the lock across a slow operation later; instead we *documented* the atomicity
+argument and the copy-before-retain rule, and we recorded the decision to revisit a lock
+in v3.8 when the slot gains a second consumer thread. The decision is the interesting
+engineering: we preferred a documented, proven-atomic fast path over a lock that future
+versions might misuse.
+
+---
+
+E0041 | v3.6 | SMALL | Found Day 74 | Fixed in 3 days | the design review
+File : camera_frames.py
+Error : design rejected: Alternative A — naive blocking cap.read() directly in the main loop
+Terminal : the design review
+
+WHAT HAPPENED
+This is what every tutorial shows and what we were tempted to ship on Day 74. Analysis:
+the loop would call `read()`, which blocks until the next frame — mean value 16.7 ms,
+worst case 33.3 ms on the camera's schedule, and unbounded if the stream stalls. With a
+10 ms period that caps the loop at roughly 20-30 Hz effective and injects 16.7 ms of
+mean latency into control. C1/C7 are violated on paper; the ESP32 watchdog would fire
+within ~0.6 s of any camera hiccup. Rejected before writing code. Its only virtue —
+simplicity — is illegitimate here because the failure mode is a parked robot.
+**Alternative B — dedicated capture thread feeding a queue (deque) for consumers.**
+Decouples the loop from the camera and is the "obvious" threading design. Analysis: it
+is exactly the design that produced the ~100-frame stall. Every frame pushed onto the
+deque pins one driver buffer; a consumer that processes slower than 30 FPS (any consumer
+doing HSV + blob later) makes the queue grow, and every retained frame is a locked
+buffer. With 4 pool buffers and a queue that grows at, say, 20 frames per second against
+a 10 Hz consumer, the pool is exhausted after roughly 0.2 s... yet we observed a stall
+at ~100 frames, not ~4, because OpenCV's backend on the Pi pre-allocates and recycles
+more generously than the naive model, and the stall count depends on pool size plus
+retained references plus the driver's own grace. The mechanism is unmistakable either
+way: *a queue of frames is a queue of held buffers, and holding the pool is how you
+stall a camera.* Also, a queue delivers *older* frames when the consumer lags — the
+exact opposite of what control wants. We want the newest frame, always; a queue can hand
+us a frame that is hundreds of milliseconds old while the newest one sits unread.
+Rejected on both latency and buffer-pinning grounds. **Alternative C — dedicated capture
+thread with a single latest-frame slot (overwrite semantics).** This is the chosen
+design. Analysis: the capture thread reads, and each new frame overwrites `self.frame`,
+releasing the previous array reference and returning that buffer to the driver. The
+consumer reads `cam.frame` non-blocking at whatever cadence it wants. Retained buffers:
+exactly one. Staleness: bounded by one frame period at the instant of sample, plus
+consumer dwell. Failure: `ret=False` leaves the last good frame in place. This satisfies
+R1-R3 and R5-R6 with the smallest possible mechanism. The overwrite is atomic enough
+under the GIL for a single reference assignment (more in section 9, where we interrogate
+this honesty).
+
+WHY IT HAPPENED
+Rejected before writing code. Its only virtue — simplicity — is illegitimate here
+because the failure mode is a parked robot. Rejected on both latency and buffer-pinning
+grounds. Failure: `ret=False` leaves the last good frame in place.
+
+FIX (took 3 days)
+the chosen design, per the chapter's decision section
+
+---
+
+E0042 | v3.6 | SMALL | Found Day 74 | Fixed in 3 days | the design review
+File : camera_frames.py
+Error : design rejected: Alternative D — grab()/retrieve() split in the capture thread
+Terminal : the design review
+
+WHAT HAPPENED
+OpenCV separates "is a frame ready" (`grab()`, which dequeues the buffer) from "give me
+the pixels" (`retrieve()`). We could drop frames cheaply by grabbing and only retrieving
+every other frame, halving decode cost. Analysis: a real option, and it would matter if
+we ever needed to shed CPU. But `grab()` alone *also* holds the buffer until
+`retrieve()`, so the same pinning rules apply, and at 30 FPS the decode of 640x480 BGR
+is cheap. The split adds a state variable and two call sites for a benefit we do not yet
+need. Deferred as a documented refinement lever, not rejected.
+
+WHY IT HAPPENED
+Deferred as a documented refinement lever, not rejected.
+
+FIX (took 3 days)
+the chosen design, per the chapter's decision section
+
+---
+
+E0043 | v3.6 | SMALL | Found Day 74 | Fixed in 3 days | the design review
+File : camera_frames.py
+Error : design rejected: Alternative F — drop resolution to 320x240
+Terminal : the design review
+
+WHAT HAPPENED
+Four times fewer pixels, cheaper everything. Analysis: WRO pillars and markers must be
+resolved at distance; at 320x240 a marker that is 40 pixels wide at 640x480 becomes 20
+pixels and starts to alias at speed, and the HSV work in v3.7 becomes more sensitive to
+noise. 640x480 is the declared hardware target. Rejected as the default; kept as the
+single cheapest emergency lever if v3.7 shows the CPU budget is blown.
+
+WHY IT HAPPENED
+Rejected as the default; kept as the single cheapest emergency lever if v3.7 shows the
+CPU budget is blown.
+
+FIX (took 3 days)
+the chosen design, per the chapter's decision section
+
+---
+
+## v3.7 - RGB TO HSV COLOUR DETECTION (Day 79-80)
+
+TOTAL ERROR : 3
+SMALL : 2
+BIG : 1
+
+E0044 | v3.7 | BIG | Found Day 79 | Fixed in 2 days | bench
+File : hsv_calib.py
+Error : mask_r1 = cv2.inRange(hsv, (0, 120, 70), (10, 255, 255))
+Terminal : bench
+
+WHAT HAPPENED
+On Day 79, mid-afternoon, we pointed the bench camera at the red WRO obstacle pillar — a
+matte red plastic tube about 120 mm across standing on a grey table — and ran the
+trackbar tool with a single hue range. The result was infuriating and unmistakable: the
+mask was a broken ring. The pillar's orange-lit edge masked perfectly; the deep-red core
+and the shaded flank went black. Shrinking the range to catch the core killed the edge;
+widening it past a few degrees flooded the whole frame with false positives (the S floor
+was too low at the time, so anything even faintly warm in hue passed). We spent about
+forty minutes chasing this, convinced it was a saturation or value problem, because the
+mask visibly *had* red in it — just not all at once.
+
+WHY IT HAPPENED
+The hue dimension is a circle, red is the family that lives on both sides of the
+circle's seam at 0/180, and a single [lo, hi] interval is a *line segment on a circle* —
+it cannot wrap. The mechanism is compounded by physics: a red cylinder under directional
+light produces a continuum of shades from highlighted-orange to shaded-crimson across
+its surface, which is exactly a continuous sweep of hue values that passes through the
+seam. Our light was also adding to it: the bench's single LED spot created a strong hue
+gradient across a cylindrical target that a flat colour swatch would not have shown. But
+the flat swatch showed the same seam problem in miniature — we confirmed the wrap was
+fundamental, not a geometry artifact, by holding a flat red card at angle: its two edges
+still bracketed the seam.
+
+INVESTIGATION (only for BIG errors)
+We stopped tweaking and started measuring, which is the discipline v3.0's CSV logging
+taught us. We wrote a tiny forensic script that let us click on pixels and print their
+(h, s, v) tuples. We sampled 50 pixels from the pillar's bright orange edge and 50 from
+the deep-red core and shaded flank. The edge pixels read hue 1-9; the core pixels read
+hue 172-179. *Same object, same paint, same frame: hue 178 on one flank and hue 6 on the
+other — 172 units apart on a 180-unit scale.* That was the moment of insight, and it
+took us a moment to say it out loud: the hue dimension is a circle. OpenCV maps the
+colour wheel's 360 degrees onto 0-179, so the two "ends" of the wheel — which are both
+red — land at hue 0 and hue 179, and a surface that is red illuminated so that it spans
+slightly orange (hue ~5) to slightly crimson (hue ~175) is *physically required* to
+straddle the seam. Any single range [lo, hi] that is not the entire wheel must either
+include hue 0 and lose hue 175, or include hue 175 and lose hue 5. There is no single
+interval on a circle that contains both "just past 0" and "just before 180" — that is
+not a tuning bug, it is a topological fact about circular variables.
+
+FIX (took 2 days)
+The two-range union exactly as the CHANGE.md records it: `mask_r1 = cv2.inRange(hsv, (0,
+120, 70), (10, 255, 255))`, `mask_r2 = cv2.inRange(hsv, (170, 120, 70), (180, 255,
+255))`, `mask_red = cv2.bitwise_or(mask_r1, mask_r2)`. Two intervals, both line
+segments, each on its own side of the seam, unioned — a line segment *set* that wraps.
+The S/V floors in both ranges stayed at S >= 120, V >= 70 so the fix did not resurrect
+the false positives. We measured the result: single-range red peak coverage of the
+pillar was 83% of its pixels; the two-range union covered 97.8% on the same frames — a
+14.8-point gain, which is why AC2 was set at 97% and why we passed it.
+
+---
+
+E0045 | v3.7 | SMALL | Found Day 79 | Fixed in 2 days | Running the committed hsv_calib
+File : hsv_calib.py
+Error : track(name)
+Terminal : Running the committed hsv_calib
+
+WHAT HAPPENED
+Running the committed hsv_calib.py as-is produced a window with no trackbars and no mask
+— just a colour-rendered HSV image. The CHANGE.md claims trackbar calibration; the
+snapshot, run literally, delivers neither.
+
+WHY IT HAPPENED
+The scaffold was written as a *type sketch* — proving the window-and-loop mechanics
+would compile and run — and the author (us) then declared the version done in the
+CHANGE.md while the interactive loop was still in the next editing session. This is the
+classic "documentation describes the aspiration, code contains the skeleton" failure,
+and it is why the template rules demand the journal reference actual code: the gap was
+real and visible.
+
+FIX (took 2 days)
+Completed the loop: call the trackbar-creation helper for all six sliders per family;
+read all six with getTrackbarPos every iteration; build numpy lower/upper bounds; run
+inRange; display the bitwise_and overlay (the BGR frame masked) instead of the raw HSV
+cube; add the 's' persistence key. The exact full tool exists in the utils folder and
+carries this structure with the createTrackbar/getTrackbarPos/inRange/bitwise_and/save
+flow that this snapshot only gestures at.
+
+---
+
+E0046 | v3.7 | SMALL | Found Day 80 | Fixed in 1 day | we calibrated green twice
+File : hsv_calib.py
+Error : White-balance and lighting drift — the green-band discovery
+Terminal : we calibrated green twice
+
+WHAT HAPPENED
+On Day 80 we calibrated green twice: once in the morning lab light and once in the
+late-afternoon mixed window-and-LED light. The same green marker vinyl produced a
+working mask at hue [36, 60] in the morning and needed [55, 95] in the afternoon. Both
+were "correct" at their moment; both failed when we re-tested across the day's swing. We
+had calibrated a colour and watched it move 24 hue units on its own.
+
+WHY IT HAPPENED
+Two stacked effects. The camera's automatic white balance renormalizes the colour of
+everything when the scene's dominant illuminant changes, and the venue light genuinely
+changes — mixed sources, moving sun, reflected light from other robots. Hue is invariant
+to brightness *magnitude* but not to the *colour temperature* of the illuminant, and
+neither the camera nor the light is under our control. Green is the family that exposes
+this best because it sits in the middle of the hue wheel where warm light pushes it
+toward yellow (higher hue) and cool light toward cyan (lower hue) — and the WRO rules
+choose green for one of the two pillar colours, so we cannot dodge it.
+
+FIX (took 1 day)
+We widened the green band to [36, 85] — the full measured envelope, not the morning or
+afternoon point value — and accepted the small false-positive
+
+---
+
+## v3.8 - V3.8 (Day 1-83)
+
+TOTAL ERROR : 6
+SMALL : 5
+BIG : 1
+
+E0047 | v3.8 | BIG | Found Day 83 | Fixed in 1 day | the competition-mat test floor
+File : blob_detect.py
+Error : find_largest
+Terminal : the competition-mat test floor
+
+WHAT HAPPENED
+On the competition-mat test floor, a single yellow pillar at ~1.2 m produced *two*
+bright blobs in its HSV mask. One was the pillar itself; the other sat below it,
+vertically smeared, roughly the same hue. In the live LED-UI view (the mask centroid was
+being drawn on the debug frame), the pillar appeared as a glowing dot with a ghost dot
+hanging under it. When we logged `find_largest` output, we saw the object's
+`normalized_x` jerk sideways by up to 0.05-0.12 whenever the ghost blob outgrew the true
+pillar — which happened whenever the pillar moved past about 1.8 m, because the true
+pillar shrank with distance while its reflection, spread over the glossy mat, stayed
+stubbornly wide. We counted 22 frames out of a 200-frame labeled run where the ghost's
+area exceeded the pillar's area or was large enough to steal the "largest" crown.
+Twenty-two frames is a 11% contamination rate — every one of those frames reported a
+wrong lateral position to the steering logic, and at 1.8 m/s a 0.1 normalized error is
+roughly 6 cm of lateral offset at the 60 cm typical pillar gap. That is the difference
+between passing the pillar and clipping it. `cx = x + w // 2` using *integer* division
+with `w` odd produced a center one pixel off the true midpoint, and because the pillar
+mask's width oscillated between even and odd as pixel noise toggled boundary columns,
+the reported center dithered ±1 px frame to frame. Initial guess: a camera noise
+problem, or a race in the overlay. Investigation: we printed `x, w, cx` over 100 frames
+and saw the pattern exactly follow parity — `(2k+1) // 2` rounds down, always. Root
+cause: none — this is not a bug in the sense of a wrong rule, it is a 0.5-pixel
+quantization of an estimator whose error budget we had already set at 2 px. The dither
+was invisible to steering (0.003 normalized). We *deliberately left the code unchanged*
+and documented the measurement, because "fixing" it with `round()` would have added a
+float path for zero benefit and because the bbox width at far range is exactly where a
+floor transition could alias — but our corpus showed the oscillation never exceeded 1 px
+in the normalized coordinate. The lesson: not every observed jitter is a bug; an
+estimator's deterministic bias below its own error budget is a specification, not a
+defect. This is the same discipline that kept the aspect-ratio gate out of the snapshot:
+measure, compare to budget, decide. For posterity, the diagnostic trail that settled the
+reflection bug — the exact sequence of measurements and decisions, in order: ```mermaid
+flowchart TD S[Observed: 2 blobs per pillar on glossy mat,<br/>normalized_x jerks
+0.05-0.12] --> H1{Hypothesis 1:<br/>HSV too loose?} H1 -- Partly: same hue passes even
+tight ranges --> H2{Hypothesis 2:<br/>ghost is smaller blob?} H2 -- Rejected at range:
+ghost area &gt; pillar area<br/>size rule poisoned at &gt;1.8 m --> H3{Hypothesis
+3:<br/>temporal artifact?} H3 -- No: ghost on single fresh frame,<br/>replay proves it
+--> H4{Hypothesis 4:<br/>aspect ratio separates?} H4 -- Yes: pillar H/W 1.5-5.2, ghost
+0.25-0.9,<br/>zero overlap in 200 frames --> C[Corpus logging: area, ratio,
+centroid_y<br/>for every contour per frame]
+
+WHY IT HAPPENED
+The chain, end to end. The WRO mat is a semi-glossy printed surface. A cylinder of
+pillar color facing the camera acts as a mirror for the light that hits the mat's
+specular lobe; the mat reflects the pillar's hue back up at the camera with its S and V
+attenuated by the mat's diffuse white. Our v3.7 HSV range, tuned generously to survive
+arena lighting shifts, still accepts the attenuated S/V, so the reflection pixels pass
+`inRange` and join the mask as a *disconnected* foreground region — disconnected because
+the pillar floats above the mat while the reflection lies on the mat, with the dark gap
+of the pillar's own shadow between them. `findContours` therefore sees two regions and —
+logically — the code's `max(contours, key=contourArea)` picks whichever region is
+bigger. There is no way for a size-only rule to know that the reflection's area is *not*
+evidence of a larger object, because the reflection spreads its pixels over a wide smear
+while the pillar concentrates its pixels in a tall column; at range, the smear can
+numerically win. Mechanism complete: optics put the ghost in the mask, morphology
+separated it, and the largest- area heuristic promoted it. optics admit
+ghost,<br/>morphology separates it,<br/>largest-area pick promotes it] R --> F[Fix
+suite: tighten S/V + min-area 300 px<br/>+ aspect-ratio gate prototyped] F -->
+V{Validate on 200-frame corpus} V -- Ghost rate 22/200 to 0/200<br/>detection 197/200
+preserved --> SHIP[Commit minimal guard:<br/>area &lt; 300 only] V -- Gate never fired
+in merged suite --> CUT[Cut dead branch,<br/>keep knowledge for v3.9] ``` ## 10.
+Verification and metrics We treated verification as a two-stage affair: an offline
+replay of the labeled corpus, then a live lab run on the actual robot. **Stage 1 —
+offline corpus (Day 83 evening).** The 200-frame labeled set, already described in
+section 9, was the ground truth: each frame hand-labeled with the true pillar bounding
+box (by clicking the pillar corners in a GUI annotator) and a flag for whether a ghost
+blob was visible. We then ran the final `find_largest` against every frame's mask and
+measured four things: | Metric | Result | Notes | |---|---|---| | Detection rate (pillar
+mask ≥ 300 px) | 197/197 = 100% | zero real detections lost above the floor | |
+Detection rate (all visible pillars) | 197/200 = 98.5% | 3 misses all below 300 px at
+extreme range | | Ghost/duplicate frames accepted | 0/200 = 0% | was 22/200 = 11% before
+the fix | | Lateral x error vs hand label (RMS) | 1.8 px = 0.0056 normalized |
+bbox-center vs moment agreed within 1-2 px | | Area repeatability (same pillar, 10
+frames) | ±4% | camera noise + slight pose drift | | Max frame-latency added by
+find_largest | 3.1 ms | one mask, worst measured frame | Every acceptance criterion from
+section 3, checked off: criterion 1 (dict shape and None contract) — pass, verified by
+unit test on both an empty mask and a populated mask. Criterion 2 (blob step under 8 ms)
+— pass, 3.1 ms worst case, ~2.4 ms typical. Criterion 3 (ghost rate under 2%) — pass
+with margin: 0% in corpus. Criterion 4 (95% detection above 300 px) — pass at 100% above
+the floor. Criterion 5 (pure function) — pass, unit test replays identical masks and
+asserts identical dicts. We also recorded the numbers that did *not* reach the
+acceptance criteria but matter for the next version: 3 missed far-pillar frames (all
+below the 300 px floor, all beyond ~2.4 m), and the fact that the aspect-ratio gate
+never fired once the floor + S/V tightening were in (recorded in section 9). **Stage 2 —
+live lab run (Day 84 morning).** Robot on the test floor, pillar at 0.5-2.5 m, full
+pipeline running at 30 FPS. We measured end-to-end behavior rather than component
+behavior: - Loop period: 33.3 ms nominal, measured 31-36 ms across a 10-second window —
+the pipeline occasionally breathes past one frame (a driver or USB interrupt), but never
+more than one, so 30 FPS is effectively held and no frame ever takes so long that the
+ESP32 watchdog (200 ms) sees silence. - Steering response: with normalized_x piped to
+the v2.8 steering path, the robot corrected toward a centered pillar in a mean of 4.7
+frames (156 ms) to settle within ±0.02 normalized — i.e., about 28 cm of travel at 1.8
+m/s, comfortably inside the ~60 cm pillar gap margin. - A deliberate failure injection:
+we covered the pillar with a matte cloth. The pipeline immediately produced `None`
+frames, published nothing, and the robot continued on its last heading with no exception
+and no watchdog reset. Fail-degraded, exactly as designed. **What we trusted afterwards,
+and what we still distrusted.** After the two stages we trusted: the 300 px floor (a
+clean 2x/4.6x margin on both sides of the corpus), the bbox-center choice (0.0056
+normalized RMS is far below the steering consumer's deadband), and the dict/None
+contract (the unit test and the failure-injection both exercised it). We still
+distrusted: the largest- area heuristic at long range (the physics of section 9 says the
+ghost can win the area contest even if the corpus never produced it), the camera's
+calibration of the `d ≈ sqrt(k/area)` pseudo-range (k is uncalibrated; the area value is
+a real number but not yet a distance), and the HSV ranges' S/V looseness as a standing
+invitation to future ghosts. All three distrusts are named, and all three are scheduled
+work in v3.9. ## 11. Lessons learned — permanent mental models **Lesson 1 — A mask is
+not an object; an object is not a pixel cloud.** The deep mistake v3.7 ended with was
+treating perception output as "whatever the camera gave us" instead of "what the
+controller can consume." The interface-first habit — writing the acceptance criteria
+*before* the code — is what made this version three days instead of three weeks. Future
+risk prevented: v3.9's wall model and v5.x's UKF will both demand *named, typed*
+measurements; every layer we build from now on defines its object contract before its
+algorithm. **Lesson 2 — Separable regions beat summary statistics, always.** The
+pixel-weighted centroid (Alternative A) was cheaper and would have been fine on a matte
+floor; the glossy mat punished the aggregation, not the algorithm. The general
+principle: any measurement that *merges* information before the point of decision throws
+away the power to reject what it merged. Contours separate first, decide second. Future
+risk prevented: the surprise- rule marker targets in v8 will sit on the same glossy mat
+and will demand the same separation discipline; we will never build a "summarize first"
+pipeline for them. **Lesson 3 — An empirical margin you measured beats a knob you
+tuned.** The 300 px floor, the 1.5-vs-0.9 aspect gap, the 33.3 ms budget — every one of
+these is a *measured separation between two populations* (noise vs signal, ghost vs
+pillar, budget vs spend). When a threshold is a margin between distributions, it is
+defensible and port-safe; when it is a feel-good number, it is a landmine. Future risk
+prevented: v3.9's max-area threshold and v6's gains will be chosen the same way —
+measure the populations, set the boundary, document both. **Lesson 4 — Fail-degraded is
+a system property, not a try/except.** The empty-mask `None` path, the "publish nothing,
+keep last intent" behavior, and the watchdog that tolerates 200 ms of silence are one
+coherent design: the system degrades gracefully in every stage. A single well-placed
+guard in `find_largest` prevented a whole class of vision-loop crashes. Future risk
+prevented: every future vision module inherits the rule "output must never raise; it
+must return a well-typed absence." **Lesson 5 — The snapshot should hold minimal code;
+the journal should hold maximal knowledge.** The aspect-ratio gate worked but never
+fired, and we shipped without it — and documented why in the journal, with the
+measurement, so the next engineer does not re-discover it from scratch or distrust the
+code for its absence. The discipline is: the repository carries what provably earns its
+bytes today; the history carries what the next version must know. Future risk prevented:
+v3.9's glare-streak guard reuses the measured 1.5/0.9 gap instead of re-investigating
+the mat for a week. ## 12. Code in this snapshot `blob_detect.py` ## 13. Bridge to the
+next version What v3.8 unlocks is not a faster frame or a cleaner mask — it is the
+*object stream*. The vision pipeline now emits `(normalized_x, area, bbox)` objects at
+up to 30 Hz, and v3.9 (Track: walls and pillars) can finally treat pillars as countable,
+nameable entities it can build a track model from. The area value sits in the object
+waiting to become a pseudo-range via `d ≈ sqrt(k/area)`, and the uncalibrated `k`, the
+un-cross-checked largest-area heuristic, and the S/V looseness are three named debts
+that v3.9 must retire by fusing the blob against the VL53L1X front sensor and the two
+flank VL53L0X. The known next problem, with one line of reasoning: the largest-area pick
+is provably range-unsafe in principle (section 9) even though the corpus never showed
+it, so v3.9 must add the ToF cross-check and the max-area guard before the robot relies
+on this stream at speed — because the first time a ghost steals the "largest" crown at
+1.8 m/s will not be in a labeled corpus, it will be on the track. ---
+
+INVESTIGATION (only for BIG errors)
+We stopped trusting anecdote and built the corpus. Over the afternoon of Day 83 we
+recorded 200 frames of the pillar at distances 0.5-2.5 m, angles 0-40 degrees, both
+under arena lights and under the room's fluorescent wash. We saved the masked images
+with `cv2.imwrite` (BGR frame + per-color mask, side by side) so we could re-play and
+re-reason offline — this was the moment the "pure function + replay harness" discipline
+of acceptance criterion 5 paid for itself. For every frame we extracted every contour
+and logged `(contourArea, boundingRect aspect_ratio, centroid_y, area_rank)`. The
+numbers that came back: - Real pillar contours: area range 1,400-38,000 px, aspect ratio
+(H/W) range 1.5-5.2, centroid in the upper half of the frame. - Ghost contours: area
+range 180-4,200 px, aspect ratio (H/W) range 0.25-0.9 (always squat — the glossy mat
+diffuses the reflection into a wide, short smear), centroid in the lower third of the
+frame, always below the pillar. - Speckle (mat texture, sensor noise): area range 5-150
+px, no stable shape. Two facts jumped out. First, the ghost was *always* squat: its H/W
+never exceeded 0.9 in 200 frames, while the real pillar was never below 1.5. That is an
+empirical gap of 0.6 in aspect ratio with zero overlap — a beautiful, reliable
+discriminator. Second, the ghost was *not always small*: at range its area exceeded the
+pillar's. So size ranking alone was necessary but not sufficient, and the "largest wins"
+pick was being poisoned exactly when we needed it most (far pillar).
+
+FIX (took 1 day)
+Two filters, as the CHANGE.md line records, plus one insight that almost shipped an
+over-engineering. - *Minimum-area filter, 300 px.* Committed inside `find_largest`: `if
+area < 300: return None`. This kills speckle outright (speckle never exceeded 150 px;
+the floor sits at 2x that) and kills small ghosts. - *Aspect-ratio gate, H/W > 1.5.* We
+prototyped this as an explicit check on the chosen contour: compute `h / w` from the
+bounding rect and require it above 1.5, else return `None`. Measured against the corpus
+it rejected every remaining ghost — the 0.9-upper-bound on ghost ratio vs the 1.5-lower-
+bound on real pillar ratio left a 0.6 gap of zero overlap. This filter was real, it
+worked, and it is the honest reason the CHANGE.md fix line names it. Now the honest
+part, and it matters for how future engineers read the snapshot. When we validated the
+*combination* we discovered the aspect-ratio gate never fired in the final configuration
+— because tightening the S/V range and committing the 300 px floor together had already
+rejected every ghost in the 200-frame corpus. The aspect-ratio gate was the only filter
+that never triggered a single rejection in the merged suite. We then faced the
+engineer's discipline question: ship a guard that provably adds nothing to the current
+corpus, or cut it? We cut the *code*, kept the *knowledge*, and the committed snapshot
+therefore carries the minimum-area term only. That is why the code in this folder is the
+476-byte `find_largest` with `area < 300` and no aspect-ratio branch, while the
+CHANGE.md line — written by a teammate after the prototype day — says both filters
+rejected reflections. We decided the CHANGE.md should record the full investigation (the
+aspect-ratio idea was measured, valuable, and documented as a v3.9 call-layer guard for
+the "bright wide glare streak" failure class that the corpus never produced) while the
+snapshot should carry the minimal effective code. Keeping a filter that cannot fire is
+how dead branches accumulate and how the next engineer distrusts the codebase; keeping
+the *understanding* is how the next engineer is armed. We verified the final suite
+against the full corpus: 0 ghost frames accepted, 197/200 pillar detections preserved
+(the 3 misses were all pillars whose true mask fell below 300 px at extreme range —
+accepted per criterion 4 since they were below the floor). 7 generosity was a large part
+of letting ghosts in, and its future counterpart is now a measured trade, not a
+feel-good knob. 3. *The largest-area heuristic is flagged as range-unsafe.* Any future
+consumer that trusts "largest == pillar" without a ToF cross-check carries a review
+flag. This directly primes the v3.9 distance-fusion cross-check. A near-miss discovered
+in the same session, for completeness: the `max()` before the empty guard would have
+raised `ValueError` on an empty contour list. Our guard ordering (empty first) is
+correct, and a unit test now asserts `find_largest(np.zeros((480,640),np.uint8), 640,
+480) is None` exactly so that guard can never be reordered into a crash. **A secondary
+error, discovered during verification.** Not in the original CHANGE.md, because we
+caught it before it shipped — but it belongs in the journal. In the first live-lab pass
+on Day 84 the overlay showed the green bbox snapping one pixel to the left every few
+frames even on a static pillar.
+
+---
+
+E0048 | v3.8 | SMALL | Found Day 1 | Fixed in 83 days | the design review
+File : blob_detect.py
+Error : design rejected: Alternative A — Column-histogram weighted centroid (pure NumPy)
+Terminal : the design review
+
+WHAT HAPPENED
+Compute `hist = np.sum(mask, axis=0)` and `area = hist.sum()`, then `cx =
+(np.arange(640) * hist).sum() / area`. Pros: ~1-2 ms, vectorized, no new OpenCV
+dependency beyond what we already use, trivially simple to read. Cons: produces exactly
+one number with no blob structure. Two pillars or a pillar plus its reflection merge
+into one centroid dragged toward the heavier blob. There is no count, no rejection, no
+shape. It satisfies R1 but structurally violates R2. We rejected it once the reflection
+threat was confirmed on the real mat. If the arena had been matte, this might have been
+the shipped solution; the glossy floor is why it wasn't.
+
+WHY IT HAPPENED
+There is no count, no rejection, no shape. We rejected it once the reflection threat was
+confirmed on the real mat.
+
+FIX (took 83 days)
+the chosen design, per the chapter's decision section
+
+---
+
+E0049 | v3.8 | SMALL | Found Day 1 | Fixed in 83 days | the design review
+File : blob_detect.py
+Error : design rejected: Alternative C — Downscale-then-detect
+Terminal : the design review
+
+WHAT HAPPENED
+Resize the mask to 320x240 with `cv2.resize(mask, (320,240),
+interpolation=cv2.INTER_NEAREST)` before findContours. This cuts the raster scan cost
+roughly fourfold and would pull findContours down to ~1 ms. Cons: normalized_x
+resolution halves to 0.00625 per pixel, and, far worse, the 300 px area floor at full
+resolution becomes a 75 px floor after 2x downscale in each axis — distant pillars that
+were already marginal at the 300 px threshold collapse below their own noise. The whole
+reason the min-area floor exists is to reject speckle; downscaling shrinks real signals
+toward the noise floor faster than it shrinks the frame. We rejected C because it erodes
+exactly the weak-signal case we most need to preserve: the far pillar.
+
+WHY IT HAPPENED
+The whole reason the min-area floor exists is to reject speckle; downscaling shrinks
+real signals toward the noise floor faster than it shrinks the frame. We rejected C
+because it erodes exactly the weak-signal case we most need to preserve: the far pillar.
+
+FIX (took 83 days)
+the chosen design, per the chapter's decision section
+
+---
+
+E0050 | v3.8 | SMALL | Found Day 1 | Fixed in 83 days | the design review
+File : blob_detect.py
+Error : design rejected: Alternative D — cv2.SimpleBlobDetector
+Terminal : the design review
+
+WHAT HAPPENED
+OpenCV's thresholded blob detector with parameterized area/color filters. Pros: a few
+lines, includes min-area and min-circularity filters out of the box. Cons: its parameter
+surface (minThreshold, maxThreshold, filterByArea, filterByCircularity...) is opaque and
+tuned by trial on screen, not by mechanism; it runs multiple threshold levels internally
+(more compute), and its output blob structure (KeyPoint with size and center) is awkward
+to convert into the `(normalized_x, area, bbox)` dict our consumers want. For a
+debugging-intensive project where we live on device logs, an opaque tunable filter is a
+liability. Rejected.
+
+WHY IT HAPPENED
+For a debugging-intensive project where we live on device logs, an opaque tunable filter
+is a liability. Rejected.
+
+FIX (took 83 days)
+the chosen design, per the chapter's decision section
+
+---
+
+E0051 | v3.8 | SMALL | Found Day 1 | Fixed in 83 days | the design review
+File : blob_detect.py
+Error : design rejected: Alternative E — Deep-learning detector (TFLite/YOLO)
+Terminal : the design review
+
+WHAT HAPPENED
+The fashionable answer. A YOLOv5n-class network is ~4-6 GFLOPs; on the Pi 4B CPU at ~2-4
+GFLOPS of practical throughput that is 300-600 ms per frame — ten to twenty times the
+frame budget, and we do not carry a Coral/MOVISU accelerator. Even the lightest
+SSD/MobileNet builds struggle under 50 ms on this CPU. Training data does not exist for
+our arena and we have no labeling pipeline. Physically impossible inside the
+constraints, rejected on C1 alone. It also violates our debugging philosophy: a network
+that fails on the glossy floor is a black box we cannot interrogate on Day 84.
+
+WHY IT HAPPENED
+Physically impossible inside the constraints, rejected on C1 alone. It also violates our
+debugging philosophy: a network that fails on the glossy floor is a black box we cannot
+interrogate on Day 84.
+
+FIX (took 83 days)
+the chosen design, per the chapter's decision section
+
+---
+
+E0052 | v3.8 | SMALL | Found Day 1 | Fixed in 83 days | the design review
+File : blob_detect.py
+Error : design rejected: Alternative F — Fiducial markers (ArUco)
+Terminal : the design review
+
+WHAT HAPPENED
+Rejected in one sentence: the WRO 2026 arena uses solid-color pillars, not printed
+markers, so there is nothing to detect.
+
+WHY IT HAPPENED
+Rejected in one sentence: the WRO 2026 arena uses solid-color pillars, not printed
+markers, so there is nothing to detect.
+
+FIX (took 83 days)
+the chosen design, per the chapter's decision section
+
+---
+
+## v3.9 - SENSOR HEALTH MONITOR: FAIL LOUDLY, FAIL IN MILLISECONDS (Day 85)
+
+TOTAL ERROR : 8
+SMALL : 7
+BIG : 1
+
+E0053 | v3.9 | BIG | Found Day 85 | Fixed in 1 day | with a deliberately dead sensor
+File : sensor_health.py
+Error : time.time() - self._last_log > 2.0
+Terminal : with a deliberately dead sensor
+
+WHAT HAPPENED
+with a deliberately dead sensor, the terminal scrolled error lines continuously —
+roughly 100 lines per second, matching the read rate. The log file grew visibly during a
+60-second test. More insidiously, the *transition* message (the one that matters)
+scrolled off the top within a second and was unrecoverable without searching.
+
+WHY IT HAPPENED
+two separate design gaps compounding: (1) the readers logged every failed read (correct
+for a *debug* session, wrong for a *live* system), and (2) there was no centralized,
+rate-limited signal for the *transition*. The health class as first written logged every
+update (also spam) — the fix moved the rate limiting into the health class and quieted
+the readers' per-read logs to debug level.
+
+INVESTIGATION (only for BIG errors)
+the log file showed the messages came from the reader error paths (each failed read
+logged "read failed"), and the health class had not been connected to the readers yet —
+the changelog's fix is precisely the moment the two got connected with throttling
+between them. The severity was consistent with H1: the spam was from the readers'
+per-read error logs, not from the health class.
+
+FIX (took 1 day)
+the rate limiter (`time.time() - self._last_log > 2.0`) in the health class, plus moving
+the readers' per-read error logs to debug level. The transition is logged once per 2
+seconds maximum, with severity by direction.
+
+---
+
+E0054 | v3.9 | SMALL | Found Day 85 | Fixed in 1 day | during a run with an intermittent
+File : sensor_health.py
+Error : False
+Terminal : during a run with an intermittent
+
+WHAT HAPPENED
+during a run with an intermittent I2C glitch (one failed read every few seconds), LED2
+flickered on and off — the health state followed every individual failure instead of the
+sensor's *actual* health.
+
+WHY IT HAPPENED
+the flag logic was too eager. A health flag must express "is this sensor *dependable*?",
+not "did the last read succeed?" Single failures are part of normal I2C life;
+dependability requires a timeout window — the sensor is unhealthy only if it fails
+*consecutively* for a threshold duration. (The readers in the layer version adopted the
+consecutive-failure counter; the health class's design here is agnostic to the exact
+policy, which is why the change lived in the readers.)
+
+FIX (took 1 day)
+readers now require multiple consecutive failures before flipping their flag off, and
+require a sustained period of success before flipping it back on (hysteresis). The
+health class itself needed no change — which is the point of the clean interface.
+
+---
+
+E0055 | v3.9 | SMALL | Found Day 85 | Fixed in 1 day | after a fault and recovery cycle
+File : sensor_health.py
+Error : 3 — Log message showed the wrong LED state on recovery
+Terminal : after a fault and recovery cycle
+
+WHAT HAPPENED
+after a fault and recovery cycle, the log said "Sensors OK -> LED2 ON" but LED2 was
+actually off; the operator spent a minute investigating a robot that was perfectly
+healthy.
+
+WHY IT HAPPENED
+two independent renderers of the same state, with different update latencies. The
+changelog-era fix was to make the LED a *direct* consequence of the change event (write
+the LED inside the health transition handling) so the log message and the LED could
+never disagree.
+
+FIX (took 1 day)
+bind the LED write to the same transition that produces the log message. The two
+renderers now share one trigger.
+
+---
+
+E0056 | v3.9 | SMALL | Found Day 85 | Fixed in 1 day | sensor A failed (logged)
+File : sensor_health.py
+Error : self.flags = new_flags
+Terminal : sensor A failed (logged)
+
+WHAT HAPPENED
+sensor A failed (logged), recovered (logged), then sensor B failed within 2 seconds of
+the recovery log — but sensor B's failure was not logged. The robot appeared healthy in
+the log while LED2 was off.
+
+WHY IT HAPPENED
+the rate limiter throttles *transitions*, and a transition-pair (recovery then fault)
+inside one window collapses to a single log line with the wrong message. The live system
+(LED, flags) was correct; only the post-mortem record lost information.
+
+FIX (took 1 day)
+two options were considered: (a) widen the window (no — it reduces log volume at the
+cost of exactly this kind of loss), or (b) on a suppressed change, *remember* that the
+state differs from the last logged state, so the next emission includes a "state changed
+again" note. The changelog-era implementation chose the pragmatic middle: keep the
+2-second throttle (the volume control is essential), and accept that sub-window
+transitions appear in the log only as the *latest* state. The flag dict itself and the
+LED remain correct, which is the safety-relevant part; the log's job is coarse
+post-mortem, not a full event trace.
+
+---
+
+E0057 | v3.9 | SMALL | Found Day 85 | Fixed in 1 day | in the first seconds after boot
+File : sensor_health.py
+Error : 5 — The health class returned True (bad) during the readers' warm-up
+Terminal : in the first seconds after boot
+
+WHAT HAPPENED
+in the first seconds after boot, the mission layer's trust gate kept returning "sensors
+failed" even though all sensors were healthy — every sensor's flag starts False, and the
+readers take a few seconds (warm-up + first successful reads) to flip them True. The
+mission layer, gating on the aggregate, refused to start.
+
+WHY IT HAPPENED
+the aggregate boolean conflates two meanings: "sensors are currently reporting failure"
+and "sensors have not yet reported success." For safety, both are True (bad) — but the
+mission layer needs to distinguish "don't trust yet, wait" from "sensor dead, act
+accordingly."
+
+FIX (took 1 day)
+the consumers were given a boot-complete signal (all four flags having been True at
+least once), and the mission layer waits for it before using the trust gate. The health
+class itself kept the fail-closed semantics — boot is not OK until proven OK — while the
+consumer learned to distinguish "not yet" from "failed."
+
+---
+
+E0058 | v3.9 | SMALL | Found Day 85 | Fixed in 1 day | the design review
+File : sensor_health.py
+Error : design rejected: Alternative A — No health system; log errors only
+Terminal : the design review
+
+WHAT HAPPENED
+Keep the status quo: readers log their own failures, and let the mission code assume
+sensors work until proven otherwise. Rejected for the reason that opened this document:
+a silent sensor failure is indistinguishable from "no obstacle." The 30 cm braking
+margin (v2.6) assumes data is trustworthy; without health, the robot can drive into a
+wall on stale "clear" data. Beyond the safety argument, there is a *debugging* argument:
+the v3.8 incident cost an hour of log archaeology. A health system does not just prevent
+crashes; it makes the *next* incident diagnosis a five-minute job instead of an hour.
+The debugging value alone pays for the 15 lines. **Alternative B — Health system with
+polling LED writes (chosen structure vs. this).** Write the LED every loop from the
+current aggregate. Functionally correct, but: loses the change event for the log, wastes
+a pin write per loop, and — the subtle one — makes the log useless for diagnosing *which
+transition* happened when. The change-driven design (chosen) logs the transition itself,
+which is the event that matters. **Alternative C — Health flags + change-driven LED +
+rate-limited logging (chosen).** The snapshot's design. Strengths: event-driven (LED and
+log agree), rate limited (log stays quiet), severity split (tools can filter), granular
+flags (diagnosis possible), one-line aggregate (consumers stay simple). Weaknesses: the
+rate limiter means a *transition* can be silently swallowed if it happens within 2
+seconds of the previous log (the new state is still applied to the LED and flags — only
+the log line is suppressed; the design accepted this because the LED is the live
+indicator and the log is for post-mortem).
+
+WHY IT HAPPENED
+Keep the status quo: readers log their own failures, and let the mission code assume
+sensors work until proven otherwise. Rejected for the reason that opened this document:
+a silent sensor failure is indistinguishable from "no obstacle." The 30 cm braking
+margin (v2.6) assumes data is trustworthy; without health, the robot can drive into a
+wall on stale "clear" data. Beyond the safety argument, there is a *debugging* argument:
+the v3.8 incident cost an hour of log archaeology. The debugging value alone pays for
+the 15 lines.
+
+FIX (took 1 day)
+replaced by Alternative A — No health system; log errors only
+
+---
+
+E0059 | v3.9 | SMALL | Found Day 85 | Fixed in 1 day | the design review
+File : sensor_health.py
+Error : design rejected: Alternative D — Health system with push notifications (MQTT, dashboard)
+Terminal : the design review
+
+WHAT HAPPENED
+Stream health to a laptop dashboard in real time. Rejected: adds a network dependency, a
+second system to debug, and on race day there is no laptop on the field — the LED is the
+interface that travels with the robot. The network also breaks the "fail closed"
+property: if the Wi-Fi dies, does the dashboard show "OK" (because it last heard OK) or
+"UNKNOWN"? Every push system needs a "link lost" state of its own, which is a second
+health problem on top of the first. The LED has no such failure mode.
+
+WHY IT HAPPENED
+Rejected: adds a network dependency, a second system to debug, and on race day there is
+no laptop on the field — the LED is the interface that travels with the robot. The
+network also breaks the "fail closed" property: if the Wi-Fi dies, does the dashboard
+show "OK" (because it last heard OK) or "UNKNOWN"? The LED has no such failure mode.
+
+FIX (took 1 day)
+replaced by Alternative A — No health system; log errors only
+
+---
+
+E0060 | v3.9 | SMALL | Found Day 85 | Fixed in 1 day | the design review
+File : sensor_health.py
+Error : design rejected: Alternative E — One global health boolean, no per-sensor flags
+Terminal : the design review
+
+WHAT HAPPENED
+Simplify to a single "everything OK" flag. Rejected because it destroys diagnosis:
+"something failed" is a warning light; "the right side ToF is dead" is a repair plan. On
+a 3-minute competition turnaround, the difference between those two messages is the
+difference between finding and fixing the fault and watching the same fault kill the
+second run. The four flags cost nothing (a dict is the same code either way) and
+preserve the diagnosis.
+
+WHY IT HAPPENED
+Rejected because it destroys diagnosis: "something failed" is a warning light; "the
+right side ToF is dead" is a repair plan.
+
+FIX (took 1 day)
+replaced by Alternative A — No health system; log errors only
+
+---
+
+## THE ENGINEERING DOCUMENTATION
+
+The errors this phase records that come from ENGINEERING_
+DOCUMENTATION.md and ENGINEERING_PARAMETER_JUSTIFICATION.md,
+not from a CHANGE.md chapter. The docs do not log days, so
+Found Day is n/a and FIX carries no day count.
+
+TOTAL ERROR : 3
+SMALL : 1
+BIG : 2
+
+E0061 | v3 | BIG | Found Day n/a | Fixed in n/a | the engineering documentation
+File : layers/layer1_sensors.py
+Error : the VL53L0X over-report by 48-53 mm — the optical path bias
+Terminal : the engineering documentation
+
+WHAT HAPPENED
+During bench testing against a metal ruler at 200/400/600 mm, both VL53L0X units
+consistently over-reported by 48-53 mm.
+
+WHY IT HAPPENED
+The optical path from the sensor window to the chassis skin is longer than the
+datasheet's reference zero, and the lens mount's refractive offset adds a fixed bias.
+
+FIX
+A software OFFSET_LR_MM = 50.0 subtracted from left/right readings (layer1_sensors.py),
+verified post-fix: mean error < +/-3 mm across 200-600 mm.
+
+---
+
+E0062 | v3 | BIG | Found Day n/a | Fixed in n/a | the engineering documentation
+File : layers/layer1_sensors.py
+Error : the VL53L1X intermittent readings under the 50 ms budget
+Terminal : the engineering documentation
+
+WHAT HAPPENED
+The front VL53L1X initially produced intermittent readings under the 50 ms budget.
+
+WHY IT HAPPENED
+The VL53L1X ranging cycle (68 ms) is 6.8x slower than the 10 ms control frame; the
+control loop can never block on I2C.
+
+FIX
+Measured a 33 ms ranging budget + 35 ms settling for a reliable 68 ms cycle; the front
+sensor runs its own dedicated background thread with a lock-protected snapshot.
+
+---
+
+E0063 | v3 | SMALL | Found Day n/a | Fixed in n/a | the engineering documentation
+File : layers/layer1_sensors.py
+Error : the shared I2C bus — the address collision fix
+Terminal : the engineering documentation
+
+WHAT HAPPENED
+Three VL53 sensors and the MPU6050 share one I2C bus (constraint C-5); simultaneous
+operation caused bus contention.
+
+WHY IT HAPPENED
+One I2C bus shared by 4 devices on the Pi 4B.
+
+FIX
+Each sensor is power-gated by its own XSHUT line: sequential XSHUT power-switching, one
+sensor live at a time.
+
+---
