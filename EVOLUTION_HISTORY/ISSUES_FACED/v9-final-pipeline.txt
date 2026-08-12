@@ -1,0 +1,1300 @@
+PHASE 9 - FINAL PIPELINE - ERROR CATALOG
+
+ERROR TOTAL : 50
+SMALL : 38
+BIG : 12
+TOTAL ERROR : 615
+PERCENTAGE : 8.13%
+
+------------------------------------------------------------
+HOW TO READ THIS FILE
+1. Every error is real. It was parsed from the CHANGE.md history chapter of
+   the version that hit it (other/history/vX.Y/CHANGE.md, section 9). Nothing
+   here was invented to fill a quota.
+2. Errors are grouped by version, in the order the versions happened.
+3. E-numbers restart at E0001 for each phase file.
+4. SMALL errors are one-line fixes; BIG errors needed an investigation.
+5. 'Found Day N' is the day the error was first observed, as recorded in the
+   chapter. 'Fixed in N days' is the time between that day and the last
+   recorded day of the version.
+6. The FIX section is the fix exactly as the chapter documented it.
+------------------------------------------------------------
+ANATOMY OF ONE ERROR ENTRY
+
+E0001 | v9.0 | SMALL or BIG | Found Day N | Fixed in N days | Terminal
+File : the file or files involved, as named in the chapter
+Error : the error text, quoted from the chapter
+Terminal : where the error was observed, from the chapter
+
+WHAT HAPPENED
+What we saw - the symptom, from the chapter's Symptom section.
+
+WHY IT HAPPENED
+The root cause, from the chapter's Root cause section.
+
+INVESTIGATION (only for BIG errors)
+How we found it - the chapter's Investigation section.
+
+FIX (took N days)
+The fix, from the chapter's Fix section.
+
+------------------------------------------------------------
+THE ERROR CATALOG
+
+## v9.0 - FULL CODE COMMENTS (Day 235-237)
+
+TOTAL ERROR : 5
+SMALL : 4
+BIG : 1
+
+E0001 | v9.0 | BIG | Found Day 235 | Fixed in 3 days | the pass's start
+File : main.py
+Error : the stale's contradiction — the comments' divergence
+Terminal : the pass's start
+
+WHAT HAPPENED
+Day 235, the pass's start: the *stale comments contradicted the code* — the outdated
+notes (the comments from the earlier behaviour — the code's evolution's divergence — the
+false documentation — the readers' misled paths — the wrong understanding — the wrong
+changes — the bugs' introductions), the trust's erosion (the comments' untrustworthiness
+— the readers' skipping — the documentation's worthlessness).
+
+WHY IT HAPPENED
+The timing's miss: the comments written at the evolution — the code's changes'
+divergence — the false documentation — the trust's erosion.
+
+INVESTIGATION (only for BIG errors)
+The comments' timing was the diagnosis: the notes written during the development (the
+behaviour's evolution — the code's changes without the comments' updates — the
+divergence), and the fix is the freshness's discipline — the comments only after the
+behaviour's frozen, the review against the code (the divergence's catch — the truth's
+guarantee) (AC3): the seed's error's class — the journey's comments' decay. The lesson's
+shape: comment the final behaviour, not the journey.
+
+FIX (took 3 days)
+The frozen's discipline (the shipped pass): the comments written only after the
+behaviour's frozen — the review against the code — the divergence's catch (AC3). The
+re-test: the reviewed comments vs the code — the truth's match, the divergence's
+counter-case preserved.
+
+---
+
+E0002 | v9.0 | SMALL | Found Day 235 | Fixed in 3 days | the pass's middle
+File : main.py
+Error : i = i + 1
+Terminal : the pass's middle
+
+WHAT HAPPENED
+Day 235, the pass's middle: the comments' *restated the obvious* — the code's line's
+echo (the `i = i + 1`'s "increment i" — the function's name's duplication — the reader's
+value's absence — the noise's pages — the one sitting's path's obstruction), the
+comments' worth diluted.
+
+WHY IT HAPPENED
+The echo's presence: the obvious's restatement — the noise's pages — the signal's
+dilution.
+
+FIX (took 3 days)
+The style's discipline (the shipped pass): the comments for the why's and the
+non-obvious's only — the echo's removal (AC1). The re-test: the reader's walk — the
+comments' value — the one sitting's path, the echo's counter-case preserved.
+
+---
+
+E0003 | v9.0 | SMALL | Found Day 236 | Fixed in 2 days | the story's review
+File : main.py
+Error : the story's mismatch — the flow's documentation's divergence
+Terminal : the story's review
+
+WHAT HAPPENED
+Day 236, the story's review: the boot's and the flow's *narratives mismatched the code*
+— the main's comments (the boot's sequence's order — the control's flow's transitions)
+diverging from the actual's flow (the init's real order — the state's machine's real
+paths — the story's wrongness — the reader's mis-orientation — the one sitting's broken
+promise).
+
+WHY IT HAPPENED
+The story's divergence: the narratives' wrongness — the reader's mis-orientation — the
+promise's break.
+
+FIX (took 2 days)
+The story's review (the shipped narratives): the boot's and the flow's comments vs the
+actual's sequence (the divergence's catch — the truth's match) (AC2). The re-test: the
+story's walk vs the code — the one sitting's path true, the mismatch's counter-case
+preserved.
+
+---
+
+E0004 | v9.0 | SMALL | Found Day 236 | Fixed in 2 days | the change's rehearsal
+File : main.py
+Error : the maintenance's divergence — the comments' future's drift
+Terminal : the change's rehearsal
+
+WHAT HAPPENED
+Day 236, the change's rehearsal: the *maintenance drifted the comments* — the future's
+change (the constant's tweak — the function's edit) without the comments' sync (the
+divergence's return — the staleness's creep — the freshness's promise's decay), the
+trust's erosion's return.
+
+WHY IT HAPPENED
+The sync's absence: the change without the comment's update — the drift's return — the
+trust's erosion.
+
+FIX (took 2 days)
+The maintenance's rule (the shipped discipline): the comments' sync in the changes'
+commits (the divergence's prevention — the freshness's permanence) (AC4). The re-test:
+the change's rehearsal — the comments' sync — the truth's keeping, the drift's
+counter-case preserved.
+
+---
+
+E0005 | v9.0 | SMALL | Found Day 237 | Fixed in 1 day | the reader's tests
+File : main.py
+Error : the readers' skipped comments — the wall's of text
+Terminal : the reader's tests
+
+WHAT HAPPENED
+Day 237, the reader's tests: the *readers skipped the comments* — the wall's of text
+(the paragraphs' blocks — the prose's density — the readers' eyes' glide — the comments'
+unread — the value's loss — the one sitting's path's obstruction), the comprehension's
+failure despite the pass.
+
+WHY IT HAPPENED
+The density's walls: the prose's blocks — the readers' skipping — the value's loss.
+
+FIX (took 1 day)
+The format's discipline (the shipped pass): the concise's and the scannable's comments
+(the bullets' and the sections' shapes — the readers' engagement) (AC1). The re-test:
+the readers' walks — the comments' reading — the one sitting's path, the walls'
+counter-case preserved.
+
+---
+
+## v9.1 - COMPETITION SCORING DOCUMENTATION (Day 238-240)
+
+TOTAL ERROR : 5
+SMALL : 4
+BIG : 1
+
+E0006 | v9.1 | BIG | Found Day 238 | Fixed in 3 days | the review's rehearsals
+File : SCORING.md
+Error : the claims without the evidence — the unlinked assertions
+Terminal : the review's rehearsals
+
+WHAT HAPPENED
+Day 238, the review's rehearsals: the *claims without the evidence* — the rule names in
+the comments only (the assertions unlinked — the implementation's locations ungiven —
+the verification's impossibility — the review's questions unanswered — the credibility's
+absence), the target's weakness (the 122-point target's assertion without the breakdown
+— the plan's unbelievability).
+
+WHY IT HAPPENED
+The evidence's absence: the assertions unlinked — the verification's impossibility — the
+credibility's loss.
+
+INVESTIGATION (only for BIG errors)
+The evidence's form was the diagnosis: the rule's satisfaction's claim (the assertion)
+needs the evidence (the implementation's location — the verification's path), and the
+unlinked claim (the comments' name only — the "where?" unanswered) is the credibility's
+loss: the fix's form — the SCORING.md with the rule → file:line references (the
+evidence's table — the verification's path — the claim's proof) (AC2). The lesson's
+shape: docs with file:line references are the only docs that get read.
+
+FIX (took 3 days)
+The SCORING.md's mapping (the shipped document): each rule's implementing file:line —
+the rule-to-code's map — the verification's path (AC2). The re-test: the review's
+walkthrough — the references' jumps — the claims' proofs, the silence's counter-case
+preserved.
+
+---
+
+E0007 | v9.1 | SMALL | Found Day 239 | Fixed in 2 days | the audit's start
+File : SCORING.md
+Error : the reference's staleness — the code's change's drift
+Terminal : the audit's start
+
+WHAT HAPPENED
+Day 239, the audit's start: the *references drifted* — the file:line's locations (the
+v9.0's code's change — the line's shifts — the function's moves) stale against the
+current's code (the judge's jump lands wrong — the verification's failure — the
+evidence's untrustworthiness), the credibility's erosion.
+
+WHY IT HAPPENED
+The reference's drift: the code's changes without the updates — the wrong lands — the
+evidence's erosion.
+
+FIX (took 2 days)
+The audit's discipline (the shipped document): the references' verification against the
+code — the changes' sync (AC3). The re-test: the code's change then the audit — the
+references' currentness — the jumps' truth, the drift's counter-case preserved.
+
+---
+
+E0008 | v9.1 | SMALL | Found Day 239 | Fixed in 2 days | the target's calculation
+File : SCORING.md
+Error : the coverage's inflation — the partial's counted as the satisfied
+Terminal : the target's calculation
+
+WHAT HAPPENED
+Day 239, the target's calculation: the coverage's *analysis inflated the score* — the
+partial's implementation (the rule's partial's satisfaction — the condition's half — the
+points' partial's claim) counted as the full's points (the target's inflation — the
+plan's false confidence — the review's reveal — the credibility's damage), the
+breakdown's wrongness.
+
+WHY IT HAPPENED
+The inflation's labeling: the partial's counted as the satisfied — the false sums — the
+credibility's damage.
+
+FIX (took 2 days)
+The statuses' honesty (the shipped analysis): the partial's partial points — the
+missing's zero — the satisfied's full — the honest breakdown (AC4). The re-test: the
+target's recalculation — the points' truths — the plan's credibility, the inflation's
+counter-case preserved.
+
+---
+
+E0009 | v9.1 | SMALL | Found Day 240 | Fixed in 1 day | the judges' rehearsal
+File : SCORING.md
+Error : the walkthrough's absence — the claim's demonstration's gap
+Terminal : the judges' rehearsal
+
+WHAT HAPPENED
+Day 240, the judges' rehearsal: the *walkthroughs were missing* — the critical's rules'
+claims (the big points' satisfaction — the demonstration's absence — the judge's
+question — the silent claim — the evidence's incompleteness), the review's flow's
+stumbles.
+
+WHY IT HAPPENED
+The demonstration's absence: the claim without the proof's run — the silent answer — the
+evidence's gap.
+
+FIX (took 1 day)
+The walkthroughs' build (the shipped evidence): the critical's rules' demonstrations —
+the scenarios' runs — the points' claims' proofs (AC5). The re-test: the judges'
+rehearsal — the questions' answers — the flow's smoothness, the gap's counter-case
+preserved.
+
+---
+
+E0010 | v9.1 | SMALL | Found Day 240 | Fixed in 1 day | the review's walk
+File : SCORING.md
+Error : the reference's granularity's mismatch — the function's level's jump
+Terminal : the review's walk
+
+WHAT HAPPENED
+Day 240, the review's walk: the *references' granularity mismatched* — the file:line's
+level (the module's header instead of the rule's implementing function — the jump's
+vagueness — the judge's search — the verification's slowness), the evidence's path's
+friction.
+
+WHY IT HAPPENED
+The granularity's vagueness: the module's level — the judge's search — the
+verification's slowness.
+
+FIX (took 1 day)
+The granularity's refinement (the shipped mapping): the rule's implementing function's
+exact line — the jump's precision (AC2). The re-test: the judge's walk — the jumps'
+landings — the verification's speed, the vagueness's counter-case preserved.
+
+---
+
+## v9.2 - ERROR REFERENCE CATALOG (Day 241-243)
+
+TOTAL ERROR : 5
+SMALL : 4
+BIG : 1
+
+E0011 | v9.2 | BIG | Found Day 241 | Fixed in 3 days | the catalog's early drafts
+File : ERROR_CATALOG.md
+Error : the memory's reproduction's failure — the recollection's gaps
+Terminal : the catalog's early drafts
+
+WHAT HAPPENED
+Day 241, the catalog's early drafts: *half the bugs could not be reproduced from memory*
+— the recollection's gaps (the journey's distant details — the symptoms' vagueness — the
+causes' blur — the fixes' loss — the reproduction's impossibility — the entry's
+worthlessness for the future's hunt), the catalog's unreliability (the half's
+uselessness — the record's incompleteness).
+
+WHY IT HAPPENED
+The recollection's record: the entries from the fading memory — the vagueness — the
+reproduction's impossibility.
+
+INVESTIGATION (only for BIG errors)
+The recollection's record was the diagnosis: the entries from the memory (the journey's
+fading — the vagueness) cannot serve the future's hunt (the recognition's and the
+reuse's impossibility), and the fix is the source's truth — the code's analysis (the
+actual's causes — the fixes' locations — the reproduce-able's entries) (AC3): the seed's
+error's class — the recollection's unreliability. The lesson's shape: a bug catalog is
+the cheapest insurance for the next competition.
+
+FIX (took 3 days)
+The analysis's source (the shipped catalog): each entry documented from the code's
+analysis — the root cause's finding, the fix's location (AC3). The re-test: the sample's
+re-enactments — the entries' reproductions — the record's reliability, the vagueness's
+counter-case preserved.
+
+---
+
+E0012 | v9.2 | SMALL | Found Day 241 | Fixed in 3 days | the assembly's pass
+File : ERROR_CATALOG.md
+Error : the duplicates' split — the entries' fragmentation
+Terminal : the assembly's pass
+
+WHAT HAPPENED
+Day 241, the assembly's pass: the *related bugs were fragmented* — the same root cause's
+variants (the phase's similar's errors — the chapters' separate's records — the
+duplicates' entry — the index's clutter — the hunt's confusion — the pattern's
+recognition's obstruction), the catalog's readability's damage.
+
+WHY IT HAPPENED
+The fragmentation: the duplicates' entries — the clutter — the pattern's recognition's
+obstruction.
+
+FIX (took 3 days)
+The uniqueness's discipline (the shipped catalog): the same root cause's merge — the
+variants' grouping (AC1). The re-test: the index's scan — the recognition's ease — the
+hunt's speed, the fragmentation's counter-case preserved.
+
+---
+
+E0013 | v9.2 | SMALL | Found Day 242 | Fixed in 2 days | field
+File : ERROR_CATALOG.md
+Error : the entry's vagueness — the fields' incompleteness
+Terminal : field
+
+WHAT HAPPENED
+Day 242, the review's pass: some *entries were vague* — the fields' incompleteness (the
+symptom's half-description — the fix's absence — the location's missing — the future's
+team unable to recognize or reuse — the entry's worthlessness), the catalog's
+unevenness.
+
+WHY IT HAPPENED
+The fields' gaps: the vagueness — the recognition's and the reuse's impossibility — the
+worthlessness.
+
+FIX (took 2 days)
+The structure's discipline (the shipped catalog): the uniform's fields — the symptom,
+the root cause, the fix with the location (AC1). The re-test: the entries' scans — the
+completeness — the hunt's usefulness, the vagueness's counter-case preserved.
+
+---
+
+E0014 | v9.2 | SMALL | Found Day 242 | Fixed in 2 days | the completeness's audit
+File : ERROR_CATALOG.md
+Error : the chapters' gaps — the inventory's omissions
+Terminal : the completeness's audit
+
+WHAT HAPPENED
+Day 242, the completeness's audit: the *inventory had gaps* — the chapters' counts vs
+the catalog's (the v1.0-v9.1's errors — the seed's errors and the errors 1-5 — some
+chapter's entries missing — the history's holes — the future's rediscovery at the gap),
+the coverage's incompleteness.
+
+WHY IT HAPPENED
+The extraction's misses: the chapters' gaps — the history's holes — the rediscovery's
+door.
+
+FIX (took 2 days)
+The completeness's audit (the shipped inventory): the chapters' counts vs the catalog's
+— the gaps' hunt — the fills (AC5). The re-test: the reconciliation — the coverage's
+totality — the insurance's completeness, the gap's counter-case preserved.
+
+---
+
+E0015 | v9.2 | SMALL | Found Day 243 | Fixed in 1 day | the phase's end
+File : ERROR_CATALOG.md
+Error : the maintenance's freeze — the catalog's staleness
+Terminal : the phase's end
+
+WHAT HAPPENED
+Day 243, the phase's end: the *catalog's maintenance froze* — the future's bug (the
+v9.2's own findings — the later's errors) without the entry's addition (the catalog's
+staleness — the record's incompleteness — the insurance's decay — the future's
+rediscovery at the new bug), the discipline's promise's erosion.
+
+WHY IT HAPPENED
+The additions' absence: the catalog's staleness — the insurance's decay — the
+rediscovery's return.
+
+FIX (took 1 day)
+The maintenance's discipline (the shipped catalog): the future's bugs' entries — the
+additions' rule (AC4). The re-test: the new bug's entry — the catalog's freshness — the
+insurance's permanence, the freeze's counter-case preserved.
+
+---
+
+## v9.3 - README + ARCHITECTURE (Day 244-246)
+
+TOTAL ERROR : 5
+SMALL : 4
+BIG : 1
+
+E0016 | v9.3 | BIG | Found Day 244 | Fixed in 3 days | the first drafts
+File : ARCHITECTURE.md, README.md
+Error : the unreadable's diagrams — the terminal's jumble
+Terminal : the first drafts
+
+WHAT HAPPENED
+Day 244, the first drafts: the diagrams were *unreadable in the plain text's terminals*
+— the terminal's wraps (the wide's diagrams' horizontal's scroll — the shape's
+destruction — the connections' loss), the jumble's confusion (the dense's characters —
+the reader's squint — the map's failure — the doc's worthlessness).
+
+WHY IT HAPPENED
+The width's and the density's excess: the wraps — the jumble — the reader's abandonment
+— the doc's worthlessness.
+
+INVESTIGATION (only for BIG errors)
+The width's and the structure's shapes were the diagnosis: the diagrams' readability
+(the terminal's fit — the comprehension's ease — AC1) demands the 80-character's bound
+(the width's cap — the terminal's default's view — the wrap's absence) and the
+structure's clarity (the simple's shapes — the spacing — the jumble's absence), and the
+wide's and the dense's drafts (the wrap — the jumble) are the map's failure: the fix's
+form — the 80-char ASCII's art, kept narrow and structured (AC1). The lesson's shape:
+architecture docs are for humans — keep them human-sized.
+
+FIX (took 3 days)
+The 80-character's discipline (the shipped docs): the diagrams' width's cap — the
+narrow's and the structured's shapes (AC1). The re-test: the terminals' reads — the
+shapes' integrities — the comprehension's ease, the jumble's draft preserved as the
+reference.
+
+---
+
+E0017 | v9.3 | SMALL | Found Day 245 | Fixed in 2 days | the reader's tests
+File : ARCHITECTURE.md, README.md
+Error : the README's depth — the doc's wall of text
+Terminal : the reader's tests
+
+WHAT HAPPENED
+Day 245, the reader's tests: the README's *depth repelled the readers* — the wall of
+text (the paragraphs' density — the details' flood — the quick's start buried — the
+reader's momentum lost — the door's welcome failed), the orientation's slowness.
+
+WHY IT HAPPENED
+The depth's flood: the start's burial — the momentum's loss — the welcome's failure.
+
+FIX (took 2 days)
+The README's structure (the shipped door): the summary's brevity — the quick's start's
+steps — the details' links (AC2). The re-test: the readers' walks — the momentum's
+keeping — the orientation's speed, the wall's counter-case preserved.
+
+---
+
+E0018 | v9.3 | SMALL | Found Day 245 | Fixed in 2 days | the review's pass
+File : ARCHITECTURE.md, README.md
+Error : the layers' count's mismatch — the diagram's wrongness
+Terminal : the review's pass
+
+WHAT HAPPENED
+Day 245, the review's pass: the layers' *diagram mismatched the code* — the 11-layer
+diagram (the stack's shape) diverging from the code's actual's structure (the layers'
+names or the count — the v9.0's comments' truth vs the diagram's simplification — the
+reader's mis-orientation — the map's untrustworthiness), the doc's credibility's damage.
+
+WHY IT HAPPENED
+The diagram's divergence: the layers' mismatch — the mis-orientation — the trust's
+damage.
+
+FIX (took 2 days)
+The diagram's review (the shipped map): the 11-layer diagram vs the code's structure —
+the divergence's catch (AC3). The re-test: the readers' orientations — the map's truth —
+the trust's restoration, the mismatch's counter-case preserved.
+
+---
+
+E0019 | v9.3 | SMALL | Found Day 246 | Fixed in 1 day | the walkthrough's test
+File : ARCHITECTURE.md, README.md
+Error : the boot's sequence's incompleteness — the timeline's gaps
+Terminal : the walkthrough's test
+
+WHAT HAPPENED
+Day 246, the walkthrough's test: the boot's *sequence's narrative had gaps* — the
+timeline's omissions (the calibration's pass — the manager's starts' order — the
+threads' launch's placement — the narrative's jumps — the reader's boot's
+comprehension's holes), the orientation's incompleteness.
+
+WHY IT HAPPENED
+The timeline's omissions: the jumps — the comprehension's holes — the orientation's
+incompleteness.
+
+FIX (took 1 day)
+The walkthrough's review (the shipped narrative): the boot's run vs the narrative — the
+gaps' fills (AC4). The re-test: the reader's boot's comprehension — the timeline's
+fullness — the orientation's truth, the gaps' counter-case preserved.
+
+---
+
+E0020 | v9.3 | SMALL | Found Day 246 | Fixed in 1 day | the phase's end
+File : ARCHITECTURE.md, README.md
+Error : the docs' drift — the maintenance's freeze
+Terminal : the phase's end
+
+WHAT HAPPENED
+Day 246, the phase's end: the docs' *drift began* — the code's changes (the phase's
+final's tweaks) without the docs' updates (the README's and the ARCHITECTURE's staleness
+— the map's untruth — the future's reader misled), the freshness's promise's erosion.
+
+WHY IT HAPPENED
+The updates' absence: the docs' drift — the map's untruth — the future's misdirection.
+
+FIX (took 1 day)
+The maintenance's discipline (the shipped docs): the code's changes with the docs'
+updates — the sync's rule (AC5). The re-test: the change's rehearsal — the docs'
+currentness — the trust's keeping, the drift's counter-case preserved.
+
+---
+
+## v9.4 - CI PIPELINE (Day 247-249)
+
+TOTAL ERROR : 5
+SMALL : 4
+BIG : 1
+
+E0021 | v9.4 | BIG | Found Day 247 | Fixed in 3 days | the first workflow
+File : ci.yml
+Error : the Windows's path's failure — the environment's mismatch
+Terminal : the first workflow
+
+WHAT HAPPENED
+Day 247, the first workflow: the CI *failed on the Windows's path's handling* — the
+path's failures (the file's locations' misses — the backslashes' vs the forwardslashes'
+— the checks' false's failures — the pipeline's red), the environment's differences (the
+commands' unavailability — the paths' resolutions — the CI's instability — the gate's
+untrustworthiness).
+
+WHY IT HAPPENED
+The OS's mismatch: the Windows's runner — the path's and the command's differences — the
+pipeline's false's failures.
+
+INVESTIGATION (only for BIG errors)
+The environment's mismatch was the diagnosis: the CI's OS (the Windows's runner — the
+path's separators — the commands' differences) mismatching the project's assumptions
+(the Unix's paths — the Linux's commands), and the fix is the parity's discipline — the
+ubuntu-latest (the Linux's family — the project's assumptions' home — the path's
+handling's end), the explicit python's 3.11 setup (the versions' pinning) (AC3): the
+seed's error's class — the environment's mismatch. The lesson's shape: CI must run on
+the same OS family as the target (the Linux).
+
+FIX (took 3 days)
+The parity's move (the shipped pipeline): the ubuntu-latest with the explicit python
+3.11 setup (AC3). The re-test: the pipeline's stability — the checks' validity — the
+green's gate, the mismatch's run preserved as the reference.
+
+---
+
+E0022 | v9.4 | SMALL | Found Day 248 | Fixed in 2 days | the tests' inclusion
+File : ci.yml
+Error : the hardware's coupling — the CI's tests' hang
+Terminal : the tests' inclusion
+
+WHAT HAPPENED
+Day 248, the tests' inclusion: the *tests hung on the hardware* — the suite's coupling
+(the sensors' and the motors' access in the tests — the CI's runner's hardware's absence
+— the I2C's errors, the serial's timeouts — the tests' hangs — the pipeline's timeout's
+red), the gate's uselessness at the hardware's dependency.
+
+WHY IT HAPPENED
+The hardware's coupling: the sensors' and the motors' access — the hangs — the
+pipeline's red.
+
+FIX (took 2 days)
+The pure-logic's scope (the shipped pipeline): the suites' inventory with the mocks —
+the hardware's tests' exclusion (AC1). The re-test: the CI's run without the robot — the
+gate's green — the portability, the hang's counter-case preserved.
+
+---
+
+E0023 | v9.4 | SMALL | Found Day 248 | Fixed in 2 days | the lint's first run
+File : ci.yml
+Error : the lint's noise — the style's gate's false's failures
+Terminal : the lint's first run
+
+WHAT HAPPENED
+Day 248, the lint's first run: the *lint flooded the gate* — the style's violations (the
+conventions' breaks — the existing's code's dust — the lint's hundreds of the findings —
+the gate's red at the style — the team's noise — the gate's discipline's erosion), the
+signal's drowning.
+
+WHY IT HAPPENED
+The lint's flood: the existing's dust — the red at the style — the gate's erosion.
+
+FIX (took 2 days)
+The lint's configuration (the shipped pipeline): the rules' scope — the dust's handling
+— the new's violations' gate (AC2). The re-test: the gate's signal — the noise's taming
+— the smell's catch, the flood's counter-case preserved.
+
+---
+
+E0024 | v9.4 | SMALL | Found Day 249 | Fixed in 1 day | the team's practice
+File : ci.yml
+Error : the gate's bypass — the merge's unguarded path
+Terminal : the team's practice
+
+WHAT HAPPENED
+Day 249, the team's practice: the *gate was bypassed* — the merge's path (the direct's
+pushes to the main — the required's checks' absence — the pull's request's gate's skip —
+the broken's code's entry — the regression's return), the gate's promise's erosion.
+
+WHY IT HAPPENED
+The enforcement's absence: the unguarded's merge — the broken's entry — the regression's
+return.
+
+FIX (took 1 day)
+The enforcement's binding (the shipped gate): the branch's protection — the required's
+checks — the merge's block at the failure (AC5). The re-test: the bypass's attempts —
+the blocks — the gate's promise, the bypass's counter-case preserved.
+
+---
+
+E0025 | v9.4 | SMALL | Found Day 249 | Fixed in 1 day | the phase's end
+File : ci.yml
+Error : the versions' drift — the CI's and the target's divergence
+Terminal : the phase's end
+
+WHAT HAPPENED
+Day 249, the phase's end: the *versions drifted* — the CI's and the target's python's
+and the dependencies' versions (the CI's installs' floating — the requirements' unpinned
+— the CI's green at the new's versions vs the target's behavior's difference — the
+gate's false's confidence), the parity's promise's erosion.
+
+WHY IT HAPPENED
+The versions' drift: the floating's installs — the divergence — the false's confidence.
+
+FIX (took 1 day)
+The pinning's discipline (the shipped pipeline): the requirements' exact's versions —
+the CI's and the target's consistency (AC3). The re-test: the installs' reproducibility
+— the divergence's absence — the parity's truth, the drift's counter-case preserved.
+
+---
+
+## v9.5 - REPOSITORY CLEANUP (Day 250-252)
+
+TOTAL ERROR : 5
+SMALL : 4
+BIG : 1
+
+E0026 | v9.5 | BIG | Found Day 250 | Fixed in 3 days | the repo's survey
+File : CLEANUP_NOTES.md
+Error : the nested's duplication — the copies' sprawl
+Terminal : the repo's survey
+
+WHAT HAPPENED
+Day 250, the repo's survey: the nested artifact's directories *duplicated the files* —
+the copies' sprawl (the same artifact's multiple's locations — the nested's directories
+— the versions' divergence — the updates' multiple's places — the reader's confusion —
+the repo's bloat), the canonical's absence (the current's identification's impossibility
+— the wrong's use).
+
+WHY IT HAPPENED
+The canonical's absence: the multiple's homes — the divergence — the confusion — the
+bloat.
+
+INVESTIGATION (only for BIG errors)
+The canonical's absence was the diagnosis: the copies' sprawl (the same artifact's
+multiple's homes — the divergence — the confusion) cannot serve the trust's promise, and
+the fix is the canonical's discipline — the one location per artifact's type (the
+single's home — the divergence's end), the .gitignore for the rest (the generated's and
+the logs' and the transient's exclusion) (AC2): the seed's error's class — the
+structure's sprawl. The lesson's shape: cleanup is a feature — it protects the release's
+branch.
+
+FIX (took 3 days)
+The canonical's discipline (the shipped cleanup): the one location per artifact's type —
+the duplicates' removal — the .gitignore's patterns (AC2). The re-test: the inventory's
+scan — the duplicates' absence — the structure's clarity, the sprawl's state preserved
+as the reference.
+
+---
+
+E0027 | v9.5 | SMALL | Found Day 251 | Fixed in 2 days | the removals' pass
+File : CLEANUP_NOTES.md
+Error : the deletion's overreach — the needed's removal
+Terminal : the removals' pass
+
+WHAT HAPPENED
+Day 251, the removals' pass: the cleanup *removed the needed* — the overreach (the
+artifact's misclassification — the calibration's script still useful — the stale's
+judgment wrong — the needed's file deleted — the function's loss — the recovery's hassle
+from the git's history), the trust's setback.
+
+WHY IT HAPPENED
+The overreach's judgment: the misclassification — the needed's deletion — the function's
+loss.
+
+FIX (took 2 days)
+The decisions' audit (the shipped cleanup): the classifications' review — the stale's
+verification — the deletion's caution (AC1). The re-test: the inventory's audit — the
+needed's preservation — the safety's truth, the overreach's counter-case preserved.
+
+---
+
+E0028 | v9.5 | SMALL | Found Day 251 | Fixed in 2 days | the runs' aftermath
+File : CLEANUP_NOTES.md
+Error : the .gitignore's gaps — the artifacts' return
+Terminal : the runs' aftermath
+
+WHAT HAPPENED
+Day 251, the runs' aftermath: the .gitignore's *patterns missed the artifacts* — the
+generated's and the logs' and the calibration's outputs (the unlisted's patterns — the
+untracked's reappearance — the porcelain's noise — the clean's promise's decay), the
+hygiene's failure.
+
+WHY IT HAPPENED
+The patterns' gaps: the unlisted's reappearance — the porcelain's noise — the clean's
+decay.
+
+FIX (took 2 days)
+The patterns' audit (the shipped cleanup): the generated's and the logs' and the
+transient's patterns — the porcelain's verification (AC3). The re-test: the runs'
+outputs — the untracked's absence — the clean's state, the gaps' counter-case preserved.
+
+---
+
+E0029 | v9.5 | SMALL | Found Day 252 | Fixed in 1 day | the record's review
+File : CLEANUP_NOTES.md
+Error : the record's gaps — the removals' unexplained
+Terminal : the record's review
+
+WHAT HAPPENED
+Day 252, the record's review: the CLEANUP_NOTES' *entries were incomplete* — the
+removals' log's gaps (the deletions without the reasons — the dates' absence — the
+future's confusion — the why's of the removals lost — the trust's erosion), the record's
+worthlessness.
+
+WHY IT HAPPENED
+The reasons' absence: the unexplained's removals — the why's loss — the trust's erosion.
+
+FIX (took 1 day)
+The record's discipline (the shipped notes): the entries' fields — the artifact, the
+reason, the date — the removals' log's fullness (AC4). The re-test: the record's review
+— the reasons' clarity — the trust's keeping, the gaps' counter-case preserved.
+
+---
+
+E0030 | v9.5 | SMALL | Found Day 252 | Fixed in 1 day | the phase's end
+File : CLEANUP_NOTES.md
+Error : the hygiene's decay — the cleanup's one-time nature
+Terminal : the phase's end
+
+WHAT HAPPENED
+Day 252, the phase's end: the *hygiene decayed* — the cleanup's one-time pass (the
+future's artifacts — the new's additions without the canonical's check — the clutter's
+return — the trust's promise's decay), the discipline's permanence's failure.
+
+WHY IT HAPPENED
+The one-time's nature: the future's clutter — the clean's decay — the promise's failure.
+
+FIX (took 1 day)
+The hygiene's discipline (the shipped cleanup): the additions' canonical's checks — the
+clean's verification's reviews (AC5). The re-test: the future's additions — the clean's
+keeping — the trust's permanence, the decay's counter-case preserved.
+
+---
+
+## v9.6 - INTEGRATION TEST (Day 253-255)
+
+TOTAL ERROR : 5
+SMALL : 4
+BIG : 1
+
+E0031 | v9.6 | BIG | Found Day 253 | Fixed in 3 days | the first suites
+File : test_sensors.py
+Error : the 5-minute's suite — the gate's drag
+Terminal : the first suites
+
+WHAT HAPPENED
+Day 253, the first suites: the full suite *took 5 minutes on the Pi* — the CI's
+infeasibility (the every-commit's run's impossibility — the gate's bypass — the tests'
+skipped — the proof's absence), the hardware's waits (the sensors' reads' — the serial's
+timeouts' — the suite's drag).
+
+WHY IT HAPPENED
+The uniform's suite: the hardware's waits — the gate's drag — the tests' skipping — the
+proof's loss.
+
+INVESTIGATION (only for BIG errors)
+The speed's classes were the diagnosis: the hardware's tests' slowness (the reads' and
+the timeouts' waits — the 5 minutes' total) cannot run at every commit, and the fix is
+the partitioning — the fast's class (the simulated's — the CI's seconds) and the slow's
+class (the hardware's — the robot's minutes) (AC3): the seed's error's class — the
+uniform's suite's drag. The lesson's shape: fast tests run everywhere; slow tests run
+before the robot.
+
+FIX (took 3 days)
+The speed's classes (the shipped suite): the fast's simulated's tests in the CI — the
+slow's hardware's tests before the robot (AC3). The re-test: the CI's seconds' run — the
+gate's speed — the proof's return, the 5-minute's suite preserved as the reference.
+
+---
+
+E0032 | v9.6 | SMALL | Found Day 254 | Fixed in 2 days | the CI's first run
+File : test_sensors.py
+Error : the simulate's leak — the mock's hardware's call
+Terminal : the CI's first run
+
+WHAT HAPPENED
+Day 254, the CI's first run: the simulated's mode *leaked into the hardware* — the
+mock's incompleteness (the stubs' gaps — the I2C's calls' leaks — the real's sensor's
+access in the simulated's run — the CI's runner's absence — the suite's hangs — the
+gate's red), the portability's failure.
+
+WHY IT HAPPENED
+The mocks' gaps: the hardware's calls' leaks — the hangs — the gate's red.
+
+FIX (took 2 days)
+The mocks' audit (the shipped suite): the hardware's paths' stubs — the leaks'
+elimination (AC1). The re-test: the CI's run — the hardware's absence — the green's
+gate, the leak's counter-case preserved.
+
+---
+
+E0033 | v9.6 | SMALL | Found Day 254 | Fixed in 2 days | the round-trip's tests
+File : test_sensors.py
+Error : the round-trip's blind spot — the corruption's pass
+Terminal : the round-trip's tests
+
+WHAT HAPPENED
+Day 254, the round-trip's tests: the serial's *round-trip missed the corruption* — the
+test's blind spot (the encode/decode's happy path only — the corrupted's packet's
+acceptance — the CRC8's rejection untested — the v8.9's guarantee unproven), the
+protocol's truth's gap.
+
+WHY IT HAPPENED
+The happy path's only: the corruption's untested — the rejection's unproven — the
+truth's gap.
+
+FIX (took 2 days)
+The corruption's tests (the shipped suite): the bit's flips' injection — the CRC8's
+rejections' assertions (AC2). The re-test: the corruption's catches — the rejection's
+proof — the protocol's truth, the blind spot's counter-case preserved.
+
+---
+
+E0034 | v9.6 | SMALL | Found Day 255 | Fixed in 1 day | the health's tests
+File : test_sensors.py
+Error : the health's flags' staleness — the liveness's untested
+Terminal : the health's tests
+
+WHAT HAPPENED
+Day 255, the health's tests: the health's *flags' exercise missed the staleness* — the
+liveness's test (the heartbeats' flow's observation only — the missed's and the stale's
+paths' untested — the v8.8's hysteresis's truth unproven), the monitor's proof's gap.
+
+WHY IT HAPPENED
+The flow's only: the staleness's untested — the hysteresis's unproven — the proof's gap.
+
+FIX (took 1 day)
+The staleness's tests (the shipped suite): the missed's heartbeats' injection — the
+declaration's and the recovery's assertions (AC4). The re-test: the staleness's catches
+— the hysteresis's proof — the monitor's truth, the gap's counter-case preserved.
+
+---
+
+E0035 | v9.6 | SMALL | Found Day 255 | Fixed in 1 day | field
+File : test_sensors.py
+Error : the slow's skip — the field's blindness
+Terminal : field
+
+WHAT HAPPENED
+Day 255, the phase's end: the *slow's suite was skipped* — the pit lane's discipline's
+absence (the hardware's tests' runs unbound — the field's morning's hurry — the skip —
+the hardware's truth unproven — the pit lane's discovery), the lesson's promise's decay.
+
+WHY IT HAPPENED
+The runs' unbound: the skip — the hardware's truth's absence — the pit lane's discovery.
+
+FIX (took 1 day)
+The discipline's binding (the shipped suite): the pit lane's checklist — the slow's
+suite's required's run (AC5). The re-test: the field's rehearsal — the slow's run — the
+hardware's proof, the skip's counter-case preserved.
+
+---
+
+## v9.7 - 12 BUG FIXES (Day 256-258)
+
+TOTAL ERROR : 5
+SMALL : 4
+BIG : 1
+
+E0036 | v9.7 | BIG | Found Day 256 | Fixed in 3 days | field
+File : layer1_sensors.py, serial_protocol.py
+Error : the zero's division — the contact's crash
+Terminal : field
+
+WHAT HAPPENED
+Day 256, the field's and the tests' runs: the *division crashed at the zero* — the
+sensor's 0 mm (the target's contact — the wall's touch — the read's fault) — the
+denominator's zero — the division's crash (the ZeroDivisionError — the run's death — the
+mission's failure at the worst moment).
+
+WHY IT HAPPENED
+The guard's absence: the 0's denominator — the division's crash — the mission's failure.
+
+INVESTIGATION (only for BIG errors)
+The state's semantics were the diagnosis: the sensor's 0 mm (the contact or the fault —
+not the distance's value) needs the state's handling, and the unguarded's division (the
+denominator's zero — the crash) is the run's death: the fix's form — the explicit
+validity's check before every distance's division (the 0's rejection — the state's
+handling — the safe's fallback) (AC1). The lesson's shape: zero is not a distance — it
+is a state.
+
+FIX (took 3 days)
+The validity's guards (the shipped fixes): the explicit checks before every distance's
+division — the 0's state's handling — the safe's fallback (AC1). The re-test: the zero's
+injections — the crash's absence — the run's survival, the crash's run preserved as the
+reference.
+
+---
+
+E0037 | v9.7 | SMALL | Found Day 256 | Fixed in 3 days | the round-trip's tests
+File : layer1_sensors.py, serial_protocol.py
+Error : the off-by-one's parse — the frame's boundary's edge
+Terminal : the round-trip's tests
+
+WHAT HAPPENED
+Day 256, the round-trip's tests: the packet's *parsing dropped or added a byte* — the
+frame's boundary's edge (the length's off-by-one — the last's byte's loss — the extra's
+read — the command's corruption — the v8.9's protocol's parse's defect), the
+round-trip's fidelity's break.
+
+WHY IT HAPPENED
+The boundary's error: the length's off-by-one — the byte's loss or the extra — the
+command's corruption.
+
+FIX (took 3 days)
+The parse's correction (the shipped fix): the frame's boundary's math — the round-trip's
+fidelity (AC2). The re-test: the frame's edges — the round-trips' truth — the fidelity's
+proof, the off-by-one's counter-case preserved.
+
+---
+
+E0038 | v9.7 | SMALL | Found Day 257 | Fixed in 2 days | the motors' tests
+File : layer1_sensors.py, serial_protocol.py
+Error : the STBY's read's fault — the driver's state's misread
+Terminal : the motors' tests
+
+WHAT HAPPENED
+Day 257, the motors' tests: the STBY's *read returned the wrong state* — the motor's
+driver's standby's pin (the read's timing — the state's misread — the driver's
+behavior's misjudgment — the enable's and the disable's wrongness — the motors'
+unexpected's states), the drive's control's corruption.
+
+WHY IT HAPPENED
+The read's misjudgment: the timing's absence — the wrong's state — the motors'
+wrongness.
+
+FIX (took 2 days)
+The STBY's correction (the shipped fix): the read's protocol — the settle's timing — the
+state's truth (AC3). The re-test: the states' reads — the driver's truth — the control's
+fidelity, the misread's counter-case preserved.
+
+---
+
+E0039 | v9.7 | SMALL | Found Day 257 | Fixed in 2 days | the values' tests
+File : layer1_sensors.py, serial_protocol.py
+Error : the clamp's order — the bounds' violation
+Terminal : the values' tests
+
+WHAT HAPPENED
+Day 257, the values' tests: the clamp's *order violated the bounds* — the clamp's
+sequence (the min's before the max's or the reverse — the wrong's order — the value's
+escape — the servo's or the speed's bounds' breach — the limits' violation), the
+control's constraints' break.
+
+WHY IT HAPPENED
+The order's wrongness: the value's escape — the bounds' breach — the constraints' break.
+
+FIX (took 2 days)
+The order's correction (the shipped fix): the sequence's consistency with the bounds'
+definitions — the limits' truth (AC4). The re-test: the bounds' edges — the values'
+containment — the constraints' keeping, the violation's counter-case preserved.
+
+---
+
+E0040 | v9.7 | SMALL | Found Day 258 | Fixed in 1 day | the boot's tests
+File : layer1_sensors.py, serial_protocol.py
+Error : the flag's defaults — the boot's wrong's states
+Terminal : the boot's tests
+
+WHAT HAPPENED
+Day 258, the boot's tests: the *flags booted wrong* — the state's flags' initial's
+values (the defaults' errors — the boot's wrong's states — the mode's and the
+condition's misreads at the start — the mission's opening's wrongness), the boot's
+truth's break.
+
+WHY IT HAPPENED
+The defaults' errors: the boot's wrong's states — the misreads — the opening's
+wrongness.
+
+FIX (took 1 day)
+The defaults' correction (the shipped fix): the flags' initial's values — the safe's and
+the neutral's states (AC5). The re-test: the boot's states — the defaults' truth — the
+opening's correctness, the wrong's states' counter-case preserved.
+
+---
+
+## v9.8 - PERFORMANCE OPTIMIZATION (Day 259-261)
+
+TOTAL ERROR : 5
+SMALL : 4
+BIG : 1
+
+E0041 | v9.8 | BIG | Found Day 259 | Fixed in 3 days | the profiling's runs
+File : layer4_perception.py, robot_config.json
+Error : the 95%'s peak — the saturation's saturation
+Terminal : the profiling's runs
+
+WHAT HAPPENED
+Day 259, the profiling's runs: the CPU *pegged at the 95%* with the camera at the
+640x480@30 — the control's jitter (the loop's period's spikes at the frames' processing
+— the v8.7's scheduler's cadence's stress), the stalls' risks (the emergency's
+response's latency at the saturation — the safety's margin's erosion), the headroom's
+absence.
+
+WHY IT HAPPENED
+The full-size's processing: the 640x480's costs — the CPU's saturation — the headroom's
+absence.
+
+INVESTIGATION (only for BIG errors)
+The full-size's processing was the diagnosis: the camera's capture at the 640x480 (the
+transfer, the HSV's conversions (the full's frames' per-pixel's math), the detection's
+scans) saturated the CPU — the control's starvation — and the fix is the optimization's
+pass — the camera's configuration (the configurable resolution and FPS — the downscale),
+the thresholds' config's move, the allocations' reduction (AC2): the seed's error's
+class — the unmeasured's load's saturation. The lesson's shape: performance's work
+belongs in the config-first's design.
+
+FIX (took 3 days)
+The optimization's pass (the shipped tuning): the configurable camera's resolution and
+FPS — the processing's downscale — the allocations' reduction (AC2). The re-test: the
+re-profile — the 40%'s reduction — the headroom's margin, the 95%'s run preserved as the
+reference.
+
+---
+
+E0042 | v9.8 | SMALL | Found Day 260 | Fixed in 2 days | the accuracy's tests
+File : layer4_perception.py, robot_config.json
+Error : the downscale's overreach — the accuracy's loss
+Terminal : the accuracy's tests
+
+WHAT HAPPENED
+Day 260, the accuracy's tests: the downscale *lost the detections* — the resolution's
+over-reduction (the markers' and the walls' features' resolution's need — the small's
+markers' blur — the detections' misses — the HSV's conversions' and the scans' savings
+at the accuracy's cost), the perception's truths' break.
+
+WHY IT HAPPENED
+The over-reduction: the features' blur — the misses — the perception's truths' break.
+
+FIX (took 2 days)
+The sufficiency's calibration (the shipped config): the resolution's sweep — the
+accuracy's measurements — the bound's choice (AC3). The re-test: the detections' truths
+at the chosen's resolution — the accuracy's preservation, the overreach's counter-case
+preserved.
+
+---
+
+E0043 | v9.8 | SMALL | Found Day 260 | Fixed in 2 days | the config's move
+File : layer4_perception.py, robot_config.json
+Error : the config's break — the boot's rejection
+Terminal : the config's move
+
+WHAT HAPPENED
+Day 260, the config's move: the *config broke the boot* — the keys' and the values'
+errors (the thresholds' move's typos — the types' mismatches — the ranges' violations —
+the boot's parse's failure — the robot's non-start), the config's trust's damage.
+
+WHY IT HAPPENED
+The validation's absence: the typos' pass — the boot's break — the trust's damage.
+
+FIX (took 2 days)
+The boot's validation (the shipped config): the keys' presence, the types' and the
+ranges' checks, the errors' messages (AC4). The re-test: the invalid's configs — the
+boot's rejections — the safety's truth, the break's counter-case preserved.
+
+---
+
+E0044 | v9.8 | SMALL | Found Day 261 | Fixed in 1 day | the endurance's runs
+File : layer4_perception.py, robot_config.json
+Error : the allocations' churn's return — the GC's stalls
+Terminal : the endurance's runs
+
+WHAT HAPPENED
+Day 261, the endurance's runs: the *GC's stalls returned* — the allocations' churn (the
+hot's loop's temporary's arrays and the objects — the garbage's collector's pauses — the
+loop's period's spikes — the control's jitter's return), the reduction's incompleteness.
+
+WHY IT HAPPENED
+The temporaries' churn: the GC's pauses — the jitter's return — the reduction's
+incompleteness.
+
+FIX (took 1 day)
+The reuse's patterns (the shipped tuning): the hot's loop's buffers' and the objects'
+reuse — the churn's cut (AC1). The re-test: the endurance's runs — the pauses' absence —
+the loop's stability, the churn's counter-case preserved.
+
+---
+
+E0045 | v9.8 | SMALL | Found Day 261 | Fixed in 1 day | venue
+File : layer4_perception.py, robot_config.json
+Error : the rehearsal's regression — the tuning's accuracy's drift
+Terminal : venue
+
+WHAT HAPPENED
+Day 261, the race's rehearsal: the *tuning drifted the accuracy* — the venue's
+conditions (the lighting's variance — the v8.5's adversary) vs the tuned's thresholds
+(the config's values — the calibration's venue — the mismatch — the detections' misses —
+the race's points' loss), the tuning's truth's decay.
+
+WHY IT HAPPENED
+The calibration's staleness: the venue's mismatch — the misses — the points' loss.
+
+FIX (took 1 day)
+The calibration's loop (the shipped discipline): the calibrate_hsv.py's outputs' writing
+to the config — the venue's re-calibration (AC5). The re-test: the venue's rehearsal —
+the thresholds' currency — the detections' truths, the drift's counter-case preserved.
+
+---
+
+## v9.9 - RELEASE CANDIDATE (Day 267-269)
+
+TOTAL ERROR : 5
+SMALL : 2
+BIG : 3
+
+E0046 | v9.9 | BIG | Found Day 267 | Fixed in 3 days | the final's rehearsals
+File : RELEASE_NOTES.md, calibrate_hsv.py, calibrate_imu.py, esp32_controller.ino, layer0_system_manager.py, layer10_controller.py, layer1_sensors.py, layer2_time_sync.py, layer3_sensor_fusion.py, layer4_perception.py, layer5_localization.py, layer6_mission_manager.py, layer7_path_planner.py, layer8_trajectory_opt.py, layer9_kinematics_4ws.py, main.py, robot_config.json, serial_protocol.py, test_sensors.py
+Error : the UTF-8's BOM — the config's corruption
+Terminal : the final's rehearsals
+
+WHAT HAPPENED
+Day 267, the final's rehearsals: the config's *boot failed at the BOM* — the
+robot_config.json's byte-order's mark (the editor's save — the BOM's presence — the
+config's parse — the first's key's name's corruption — the boot's failure — the robot's
+non-start), the v8.3's shadow's return.
+
+WHY IT HAPPENED
+The encoding's intolerance: the BOM's corruption — the key's name's break — the boot's
+failure.
+
+INVESTIGATION (only for BIG errors)
+The encoding's tolerance was the diagnosis: the config's parse (the boot's reliability —
+AC2) demands the BOM's handling (the utf-8-sig's or the strip's tolerance — the
+byte-order's mark's acceptance), and the raw's parse (the BOM's corruption — the boot's
+failure) is the robot's non-start: the fix's form — the parse's tolerance (the BOM's
+strip — the boot's reliability). The lesson's shape: the last 1% of bugs hide in the
+defaults and the encodings.
+
+FIX (took 3 days)
+The BOM's tolerance (the shipped fix): the config's parse's BOM's handling — the boot's
+reliability (AC2). The re-test: the BOM'd config's boot — the start's success — the
+reliability's truth, the corruption's run preserved as the reference.
+
+---
+
+E0047 | v9.9 | BIG | Found Day 268 | Fixed in 2 days | the boot's tests
+File : RELEASE_NOTES.md, calibrate_hsv.py, calibrate_imu.py, esp32_controller.ino, layer0_system_manager.py, layer10_controller.py, layer1_sensors.py, layer2_time_sync.py, layer3_sensor_fusion.py, layer4_perception.py, layer5_localization.py, layer6_mission_manager.py, layer7_path_planner.py, layer8_trajectory_opt.py, layer9_kinematics_4ws.py, main.py, robot_config.json, serial_protocol.py, test_sensors.py
+Error : the default's flags — the boot's wrong's states
+Terminal : the boot's tests
+
+WHAT HAPPENED
+Day 268, the boot's tests: the *flags defaulted wrong* — the sensor's flags' initial's
+values (the boot's states — the mode's and the condition's misreads — the first's
+readings' wrongness — the mission's opening's errors), the v9.7's echoes' return.
+
+WHY IT HAPPENED
+The defaults' errors: the boot's misreads — the opening's wrongness — the mission's
+errors.
+
+INVESTIGATION (only for BIG errors)
+The defaults' truth was the diagnosis: the boot's states (the mode's and the condition's
+flags — AC3) depend on the defaults' correctness (the safe's and the neutral's initial's
+values), and the wrong's defaults (the misreads — the opening's errors) are the boot's
+wrongness: the defaults' fix (the safe's and the neutral's values — the boot's truth)
+with the boot's test (the states' verification — AC3). The fix: the defaults' correction
+(the safe's and the neutral's initial's values — the boot's test's green).
+
+FIX (took 2 days)
+The defaults' correction (the shipped fix): the sensor's flags' initial's values — the
+safe's and the neutral's states (AC3). The re-test: the boot's states — the defaults'
+truth — the opening's correctness, the wrong's states' counter-case preserved.
+
+---
+
+E0048 | v9.9 | BIG | Found Day 268 | Fixed in 2 days | the link's tests
+File : RELEASE_NOTES.md, calibrate_hsv.py, calibrate_imu.py, esp32_controller.ino, layer0_system_manager.py, layer10_controller.py, layer1_sensors.py, layer2_time_sync.py, layer3_sensor_fusion.py, layer4_perception.py, layer5_localization.py, layer6_mission_manager.py, layer7_path_planner.py, layer8_trajectory_opt.py, layer9_kinematics_4ws.py, main.py, robot_config.json, serial_protocol.py, test_sensors.py
+Error : the serial's timeout — the link's false's failures
+Terminal : the link's tests
+
+WHAT HAPPENED
+Day 268, the link's tests: the serial's *timeout failed the healthy's link* — the read's
+timeout too short (the ESP32's response's window — the margin's absence — the
+round-trip's false's failures — the healthy's link's errors — the v8.9's trust's edge),
+the runs' interruptions.
+
+WHY IT HAPPENED
+The margin's absence: the short's window — the false's timeouts — the runs'
+interruptions.
+
+INVESTIGATION (only for BIG errors)
+The window's margin was the diagnosis: the link's trust (the round-trip's truth — AC4)
+depends on the read's timeout's margin (the ESP32's response's window — the normal's
+jitter's headroom — the false's timeouts' absence), and the short's window (the margin's
+absence — the false's failures) is the trust's edge: the timeout's calibration (the
+response's timing's measurement — the margin's inclusion — AC4) is the link's truth. The
+fix: the timeout's extension (the response's window's margin — the false's failures'
+end).
+
+FIX (took 2 days)
+The timeout's calibration (the shipped fix): the read's timeout's extension — the
+ESP32's response's margin (AC4). The re-test: the healthy's link's round-trips — the
+false's failures' absence — the trust's restoration, the edge's counter-case preserved.
+
+---
+
+E0049 | v9.9 | SMALL | Found Day 269 | Fixed in 1 day | field
+File : RELEASE_NOTES.md, calibrate_hsv.py, calibrate_imu.py, esp32_controller.ino, layer0_system_manager.py, layer10_controller.py, layer1_sensors.py, layer2_time_sync.py, layer3_sensor_fusion.py, layer4_perception.py, layer5_localization.py, layer6_mission_manager.py, layer7_path_planner.py, layer8_trajectory_opt.py, layer9_kinematics_4ws.py, main.py, robot_config.json, serial_protocol.py, test_sensors.py
+Error : the verifications' gap — the bundle's unproven's corner
+Terminal : field
+
+WHAT HAPPENED
+Day 269, the seal's review: the *verifications missed a corner* — the bundle's edge (the
+calibrator's output's config's update — the field's flow's untested — the check-in's and
+the practice's sequence — the unproven's corner), the seal's incompleteness.
+
+WHY IT HAPPENED
+The flow's gap: the unproven's corner — the seal's incompleteness — the field's
+surprise.
+
+FIX (took 1 day)
+The rehearsal's build (the shipped seal): the field's flow's simulation — the check-in's
+and the calibrations' and the practice's sequence (AC5). The re-test: the rehearsal's
+run — the corner's closure — the execution's readiness, the gap's counter-case
+preserved.
+
+---
+
+E0050 | v9.9 | SMALL | Found Day 269 | Fixed in 1 day | field
+File : RELEASE_NOTES.md, calibrate_hsv.py, calibrate_imu.py, esp32_controller.ino, layer0_system_manager.py, layer10_controller.py, layer1_sensors.py, layer2_time_sync.py, layer3_sensor_fusion.py, layer4_perception.py, layer5_localization.py, layer6_mission_manager.py, layer7_path_planner.py, layer8_trajectory_opt.py, layer9_kinematics_4ws.py, main.py, robot_config.json, serial_protocol.py, test_sensors.py
+Error : the notes' vagueness — the release's record's incompleteness
+Terminal : field
+
+WHAT HAPPENED
+Day 269, the notes' review: the RELEASE_NOTES' *entries were vague* — the changes'
+list's gaps (the version's summary's thinness — the fixes' records' absence — the
+known's issues' omissions — the field's and the future's reference's incompleteness),
+the release's record's weakness.
+
+WHY IT HAPPENED
+The entries' gaps: the summary's thinness — the fixes' absence — the reference's
+weakness.
+
+FIX (took 1 day)
+The notes' completion (the shipped record): the version's summary — the changes' list —
+the known's issues (AC1). The re-test: the field's reference — the record's fullness —
+the future's trust, the vagueness's counter-case preserved.
+
+---
