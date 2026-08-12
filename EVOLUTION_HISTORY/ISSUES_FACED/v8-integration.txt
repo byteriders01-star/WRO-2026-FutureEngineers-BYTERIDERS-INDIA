@@ -1,0 +1,1994 @@
+PHASE 8 - INTEGRATION - ERROR CATALOG
+
+ERROR TOTAL : 76
+SMALL : 65
+BIG : 11
+TOTAL ERROR : 615
+PERCENTAGE : 12.36%
+
+------------------------------------------------------------
+HOW TO READ THIS FILE
+1. Every error is real. It was parsed from the CHANGE.md history chapter of
+   the version that hit it (other/history/vX.Y/CHANGE.md, section 9). Nothing
+   here was invented to fill a quota.
+2. Errors are grouped by version, in the order the versions happened.
+3. E-numbers restart at E0001 for each phase file.
+4. SMALL errors are one-line fixes; BIG errors needed an investigation.
+5. 'Found Day N' is the day the error was first observed, as recorded in the
+   chapter. 'Fixed in N days' is the time between that day and the last
+   recorded day of the version.
+6. The FIX section is the fix exactly as the chapter documented it.
+------------------------------------------------------------
+ANATOMY OF ONE ERROR ENTRY
+
+E0001 | v8.0 | SMALL or BIG | Found Day N | Fixed in N days | Terminal
+File : the file or files involved, as named in the chapter
+Error : the error text, quoted from the chapter
+Terminal : where the error was observed, from the chapter
+
+WHAT HAPPENED
+What we saw - the symptom, from the chapter's Symptom section.
+
+WHY IT HAPPENED
+The root cause, from the chapter's Root cause section.
+
+INVESTIGATION (only for BIG errors)
+How we found it - the chapter's Investigation section.
+
+FIX (took N days)
+The fix, from the chapter's Fix section.
+
+------------------------------------------------------------
+THE ERROR CATALOG
+
+## v8.0 - 4WS SAME-PHASE STEERING (Day 205-207)
+
+TOTAL ERROR : 9
+SMALL : 8
+BIG : 1
+
+E0001 | v8.0 | BIG | Found Day 205 | Fixed in 3 days | the full-travel's runs
+File : same_phase.py
+Error : the wheel scrub at the full lock — the tires' wear and the power's waste
+Terminal : the full-travel's runs
+
+WHAT HAPPENED
+Day 205, the full-travel's runs (the baseline's reproduction): the tires *scrubbed* at
+the full lock — the same-phase's extreme commands (the front and the rear wheels' paths
+mismatched — the arcs' centers apart, the tires' lateral sliding against the surface),
+the rubber's wear (the sliding's friction's material's loss — the tire's tread's
+evidence), the power's waste (the drive's energy to the friction — the motor's load's
+rise, the run's current's spike), the mechanism's stress.
+
+WHY IT HAPPENED
+The mismatch at the full lock: the both-axles' extreme — the paths' divergence, the
+tires' sliding — the wear and the power's waste unguarded.
+
+INVESTIGATION (only for BIG errors)
+The slip's mismatch was the diagnosis: the same-phase's geometry at the maximum travel —
+the front and the rear wheels' arcs' centers differ (the both-axles-same-direction's
+extreme — the paths' divergence, the tires' lateral sliding) — the scrub's friction (the
+wear and the power's waste) proportional to the mismatch: the full-lock's region is the
+scrub's region, and the commands' limit (the 25 degrees during development — the
+region's avoidance) is the tax's guard (AC3) — the seed's error's class: the geometry's
+gift carries the scrub's tax, paid when the geometry's extreme is commanded.
+
+FIX (took 3 days)
+The commands' limit (the shipped guard): the steering commands clamped at the 25 degrees
+during development (the scrub's region avoided — the mechanism's and the tires'
+protection) (AC3). The re-test: the runs within the limit — the wear's and the
+friction's signs absent, the full-lock's counter-case preserved.
+
+---
+
+E0002 | v8.0 | SMALL | Found Day 205 | Fixed in 3 days | the first derivation's builds
+File : same_phase.py
+Error : the law's sign error — the rear's direction's inversion, the radius's confusion
+Terminal : the first derivation's builds
+
+WHAT HAPPENED
+Day 205, the first derivation's builds: the model's output *confused the radius* — the
+rear's angle's sign's error (the delta_r's inversion — the coupling's direction misread
+— the rear steering the same direction as the front instead of the counter-rotation),
+the radius's computation's nonsense (the tangent's difference's sign — the denominator's
+confusion — the radius's negative or the infinity at the misread), the controller's
+commands' translation wrong.
+
+WHY IT HAPPENED
+The sign's error: the coupling's direction misread — the rear's same-direction — the
+tangent's difference's sign's confusion, the radius's nonsense.
+
+FIX (took 3 days)
+The law's derivation's correction (the shipped model): the rear's angle with the
+counter-rotation's sign (delta_r = -0.85*delta_f — the difference's form — the
+both-axles' cooperation) (AC1). The re-test: the model's outputs against the physical
+linkage's measurements — the angles' and the radius's agreement, the sign's counter-case
+preserved.
+
+---
+
+E0003 | v8.0 | SMALL | Found Day 206 | Fixed in 2 days | the model's first verification
+File : same_phase.py
+Error : the ratio's guess — the kappa's unmeasured value, the amplification's error
+Terminal : the model's first verification
+
+WHAT HAPPENED
+Day 206, the model's first verification: the predicted angles *mismatched the physical*
+— the linkage's measured angles (the front and the rear's actual travels at the
+commands) diverging from the model's outputs (the ratio's value from the guess — the
+0.85's assumption — the amplification's error, the rear's angle's wrong fraction), the
+radius's prediction's offset.
+
+WHY IT HAPPENED
+The ratio's guess: the constant unmeasured — the amplification's error, the radius's
+offset.
+
+FIX (took 2 days)
+The ratio's measurement (the shipped parameter): the linkage's geometry's survey (the
+rear's travel at the front's — the measured fraction — the 0.85's confirmation or
+correction), the model's parameter from the measurement (AC1). The re-test: the model's
+outputs against the measured angles — the agreement, the guess's counter-case preserved.
+
+---
+
+E0004 | v8.0 | SMALL | Found Day 206 | Fixed in 2 days | the model's edge cases
+File : same_phase.py
+Error : the radius's infinity — the denominator's zero, the straight's division
+Terminal : the model's edge cases
+
+WHAT HAPPENED
+Day 206, the model's edge cases: the *radius's infinity* at the near-straight commands —
+the denominator's zero (the tangent's difference at the tiny angles — the both-axles'
+angles nearly equal, the difference's near-zero), the division's blow-up (the wheelbase
+divided by the zero — the infinity, the model's output's nonsense at the straight), the
+controller's curvature's translation broken at the straight's commands.
+
+WHY IT HAPPENED
+The denominator's zero: the straight's commands — the tangent's difference's near-zero —
+the division's blow-up, the model's nonsense.
+
+FIX (took 2 days)
+The denominator's guard (the shipped edge): the near-zero's clamp (the tangent's
+difference's lower bound — the radius's infinity at the straight — the model's output
+the straight's radius) (AC2). The re-test: the straight's commands — the radius's large
+value, the division's counter-case preserved.
+
+---
+
+E0005 | v8.0 | SMALL | Found Day 207 | Fixed in 1 day | the integration's first runs
+File : same_phase.py
+Error : the servo's mapping's saturation — the pulse's clip at the travel's ends
+Terminal : the integration's first runs
+
+WHAT HAPPENED
+Day 207, the integration's first runs: the servo's *saturation* at the commands'
+extremes — the MG995's pulse's mapping (the angle to the pulse's width — the 900-2100 µs
+range) clipping at the travel's ends (the commanded angle's pulse beyond the range — the
+servo's mechanical stop — the pulse's clamp at the 900 or the 2100), the steering's
+angle's error at the extremes (the commanded vs the actual — the saturation's offset),
+the turning's tightness's limit unexpected.
+
+WHY IT HAPPENED
+The mapping's saturation: the command's range beyond the servo's travel — the pulse's
+clip at the ends — the angle's error at the extremes.
+
+FIX (took 1 day)
+The bounds' alignment (the shipped clamp): the model's maximum (the 35 degrees) aligned
+with the servo's range (the pulse's map's bounds — the 900-2100 µs), the command's clamp
+within the travel (AC2). The re-test: the extremes' commands — the pulse within the
+range, the saturation's counter-case preserved.
+
+---
+
+E0006 | v8.0 | SMALL | Found Day 205 | Fixed in 3 days | the design review
+File : same_phase.py
+Error : design rejected: Alternative A — Keep the 2WS's Ackermann (do nothing)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the status quo — v5.x's cornering (the front axle's steering alone, the rear's
+straight), the model proven. The case for: proven, integrated, zero effort. The case
+against, measured on Day 205: the radius's limit (the wheelbase's arc at the single
+axle's angle — the wide corners), the Mobility round's tight turning unserved, the edge
+unclaimed. Effort: zero. Robustness: 4/5 within the 2WS's scenarios. Verdict: rejected
+as the sole answer; retained as the baseline.
+
+WHY IT HAPPENED
+Verdict: rejected as the sole answer; retained as the baseline.
+
+FIX (took 3 days)
+replaced by Alternative C — The linkage's law's model (chosen)
+
+---
+
+E0007 | v8.0 | SMALL | Found Day 205 | Fixed in 3 days | the design review
+File : same_phase.py
+Error : design rejected: Alternative B — The empirically-fitted steering (the black-box map)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the servo's angle to the observed radius's mapping (the empirical table — the
+test-track's measurements, no law's derivation). The case for: the measurements'
+directness. The case against, in this system: the model's blindness — the empirical map
+(the table's points) without the law (the geometry's relations) cannot extrapolate (the
+new sections' radii — the corners the table did not measure), the servo's nonlinearity
+(the tan's compression) unmodeled. Effort: low. Robustness: 3/5. Verdict: rejected — the
+law's derivation beats the table's blindness.
+
+WHY IT HAPPENED
+The case against, in this system: the model's blindness — the empirical map (the table's
+points) without the law (the geometry's relations) cannot extrapolate (the new sections'
+radii — the corners the table did not measure), the servo's nonlinearity (the tan's
+compression) unmodeled. Verdict: rejected — the law's derivation beats the table's
+blindness.
+
+FIX (took 3 days)
+replaced by Alternative C — The linkage's law's model (chosen)
+
+---
+
+E0008 | v8.0 | SMALL | Found Day 205 | Fixed in 3 days | the design review
+File : same_phase.py
+Error : design rejected: Alternative D — The full kinematics (the slip's model, the tire's physics)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the turning's model with the tires' slip angles (the lateral forces, the
+slip's curves — the complete vehicle's dynamics). The case for: the physics' richness.
+The case against, in this system: the complexity's cost — the slip's model (the tire's
+parameters, the forces' measurement) unproven in the firmware's budget, the kinematic
+model (the geometry's relations) sufficient for the layer's foundation, the dynamics the
+controller's later work. Effort: high. Robustness: 3/5. Verdict: rejected — the
+kinematics' law beats the dynamics' dependence.
+
+WHY IT HAPPENED
+Verdict: rejected — the kinematics' law beats the dynamics' dependence.
+
+FIX (took 3 days)
+replaced by Alternative C — The linkage's law's model (chosen)
+
+---
+
+E0009 | v8.0 | SMALL | Found Day 205 | Fixed in 3 days | the design review
+File : same_phase.py
+Error : design rejected: Alternative E — The full-lock's freedom (no limit, the maximum travel)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the commands to the full travel (the 35 degrees' maximum, the scrub's region
+included). The case for: the maximum's tightness. The case against, measured on Day 205:
+the scrub's cost — the tires' wear (the sliding's rubber's loss) and the power's waste
+(the drive's energy to the friction), the mechanism's stress — the full-lock's runs'
+evidence, the tax unguarded. Effort: zero. Robustness: 2/5. Verdict: rejected — the
+limit is the gift's tax's guard.
+
+WHY IT HAPPENED
+Verdict: rejected — the limit is the gift's tax's guard.
+
+FIX (took 3 days)
+replaced by Alternative C — The linkage's law's model (chosen)
+
+---
+
+## v8.1 - 4WS OPPOSITE-PHASE STEERING (Day 208-210)
+
+TOTAL ERROR : 9
+SMALL : 8
+BIG : 1
+
+E0010 | v8.1 | BIG | Found Day 208 | Fixed in 3 days | the opposite-phase's first runs at the run's speed
+File : opposite_phase.py
+Error : the controller's fight at the tight radius — the geometry's oscillation
+Terminal : the opposite-phase's first runs at the run's speed
+
+WHAT HAPPENED
+Day 208, the opposite-phase's first runs at the run's speed (the baseline's
+reproduction): the controller *fought the tight geometry* — the opposite-phase's radius
+(the 0.5 m — the extreme curvature) at the run's speed (the path's demand's tightness vs
+the vehicle's response's lag), the correction's overshoot (the steering's
+over-correction — the yaw's overshoot past the line — the counter-correction — the
+weave), the oscillation (the robot's side-to-side's sway along the tight line), the
+turn's line's loss, the tight edge's compromise.
+
+WHY IT HAPPENED
+The speed's absence: the tight radius at the run's speed — the response's lag, the
+correction's overshoot, the oscillation — the fight, the line's loss.
+
+INVESTIGATION (only for BIG errors)
+The speed's domain was the diagnosis: the control at the extreme curvature — the yaw's
+rate's limit at the 0.5 m's radius (the response's lag — the vehicle cannot follow the
+demand at the high speed — the correction's overshoot — the fight) — the tight
+geometry's control's stability is the *speed's* domain, not the angle's: the speed's
+limit (the 0.3 m/s — the response's time's headroom at the tight radius — the calm below
+the fight's threshold) is the fight's prevention (AC3) — the seed's error's class:
+steering modes need speed limits, not just angle limits.
+
+FIX (took 3 days)
+The speed's limit (the shipped calm): the opposite-phase's maneuvers at the 0.3 m/s (the
+response's time's headroom — the tight geometry's calm — the fight's prevention) (AC3).
+The re-test: the tight turn at the calm's speed — the line held, the fight's
+counter-case preserved.
+
+---
+
+E0011 | v8.1 | SMALL | Found Day 208 | Fixed in 3 days | the mode's first builds
+File : opposite_phase.py
+Error : the counter's sign's flip — the rear's direction's error, the radius's expansion
+Terminal : the mode's first builds
+
+WHAT HAPPENED
+Day 208, the mode's first builds: the model's output *expanded the radius* — the rear's
+counter's sign's error (the delta_r's sign's flip — the rear steering the *same*
+direction as the front — the same-phase's accidental form), the radius's computation's
+expansion (the arcs' centers' separation — the wide arc — the tightness's absence), the
+tight turn's geometry wrong.
+
+WHY IT HAPPENED
+The counter's sign's flip: the rear's same-direction — the radius's expansion — the
+tightness's absence.
+
+FIX (took 3 days)
+The counter's sign's correction (the shipped law): delta_r = -0.85*cmd — the rear's
+counter-direction (AC1). The re-test: the mode's outputs against the linkage's
+measurements — the radius's collapse, the flip's counter-case preserved.
+
+---
+
+E0012 | v8.1 | SMALL | Found Day 209 | Fixed in 2 days | the integration's first runs
+File : opposite_phase.py
+Error : the mode's selection's confusion — the sections' roles' misassignment, the line's compromise
+Terminal : the integration's first runs
+
+WHAT HAPPENED
+Day 209, the integration's first runs: the mode's selection *confused the sections* —
+the mission's plan's mode's assignment (the tight turns' identification — the narrow
+passages, the parking's approach) firing the same-phase for the tight turns (the
+selection's mapping's error — the tight section's mode the same-phase — the radius's
+insufficiency, the turn's failure) and the opposite-phase for the straights (the fast
+section's mode the opposite — the calm's limit at the speed — the run's time's loss),
+the run's line's compromise.
+
+WHY IT HAPPENED
+The roles' misassignment: the section's mode's mapping's error — the tight to the same,
+the fast to the opposite — the line's compromise.
+
+FIX (took 2 days)
+The roles' assignment's correction (the shipped selection): the section's mode's mapping
+(the tight turns to the opposite-phase — the narrow passages, the parking; the
+high-speed lines to the same-phase) (AC4). The re-test: the sections' modes correct —
+the tight's pass, the fast's time, the confusion's counter-case preserved.
+
+---
+
+E0013 | v8.1 | SMALL | Found Day 209 | Fixed in 2 days | the mode's extremes' runs
+File : opposite_phase.py
+Error : the clamp's width's mismatch — the mode's range beyond the servo's, the pulse's saturation
+Terminal : the mode's extremes' runs
+
+WHAT HAPPENED
+Day 209, the mode's extremes' runs: the servo *saturated* at the mode's full — the
+opposite-phase's maximum (the ±40 degrees — the mode's clamp) beyond the servo's travel
+(the MG995's 900-2100 µs — the ±35 degrees' range, v8.0's measurement), the pulse's clip
+at the travel's ends (the commanded counter-angle's pulse beyond the range — the servo's
+mechanical stop), the actual angle's error at the mode's extremes, the radius's
+collapse's limit unexpected.
+
+WHY IT HAPPENED
+The ranges' mismatch: the mode's clamp beyond the servo's travel — the pulse's clip —
+the angle's error at the mode's extremes.
+
+FIX (took 2 days)
+The ranges' alignment (the shipped clamp): the mode's maximum aligned with the servo's
+and the linkage's travel (the counter-direction's actual range — the ±40 degrees if the
+mechanism allows, the pulse's bounds otherwise) (AC1). The re-test: the mode's extremes
+— the pulse within the range, the saturation's counter-case preserved.
+
+---
+
+E0014 | v8.1 | SMALL | Found Day 210 | Fixed in 1 day | race
+File : opposite_phase.py
+Error : the calm's stall — the 0.3 m/s's speed at the wrong sections, the run's time's leak
+Terminal : race
+
+WHAT HAPPENED
+Day 210, the complete runs: the calm's speed *stalled the run* — the 0.3 m/s's limit
+applied beyond the tight sections (the mode's speed's gate's scope — the whole
+opposite-phase's run's duration slowed, the approach's and the exit's straights at the
+calm's speed), the run's time's leak (the slow sections' seconds — the race's score's
+drain), the calm's scope's cost.
+
+WHY IT HAPPENED
+The calm's scope's breadth: the 0.3 m/s beyond the turn's core — the approach's and the
+exit's straights slowed — the run's time's leak.
+
+FIX (took 1 day)
+The calm's scope's refinement (the shipped profile): the speed's limit to the turn's
+core (the maneuver's execution — the response's time's need), the approach and the exit
+at the run's speeds (the profile's shape) (AC3-AC4). The re-test: the turn's core calm,
+the fringes fast — the time's leak closed, the stall's counter-case preserved.
+
+---
+
+E0015 | v8.1 | SMALL | Found Day 208 | Fixed in 3 days | the design review
+File : opposite_phase.py
+Error : design rejected: Alternative A — Keep the same-phase only (do nothing)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the status quo — v8.0's same-phase, the tight-but-not-tightest radius. The
+case for: proven, integrated, zero effort. The case against, measured on Day 208: the
+narrow track's unserved (the same-phase's radius at the narrow passages — the turn's
+failure), the parking's approach's tightness unserved, the tightest edge unclaimed.
+Effort: zero. Robustness: 4/5 within the same-phase's scenarios. Verdict: rejected as
+the sole answer; retained as the baseline.
+
+WHY IT HAPPENED
+The case against, measured on Day 208: the narrow track's unserved (the same-phase's
+radius at the narrow passages — the turn's failure), the parking's approach's tightness
+unserved, the tightest edge unclaimed. Verdict: rejected as the sole answer; retained as
+the baseline.
+
+FIX (took 3 days)
+replaced by Alternative C — The opposite-phase's model (chosen)
+
+---
+
+E0016 | v8.1 | SMALL | Found Day 208 | Fixed in 3 days | the design review
+File : opposite_phase.py
+Error : design rejected: Alternative B — The empirical pivot (the spot-turn's hack)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the tightest turning via the wheel's differential's hack (the spot-turn's —
+the wheels' counter-rotation at the standstill — the rotation in place, no model's law).
+The case for: the hack's simplicity. The case against, in this system: the model's
+absence — the spot-turn (the wheel's scrub — the same tax as the full-lock, the wear's
+cost) without the counter-steering's geometry (the 0.5 m's radius — the moving turn),
+the linkage's coupling (the single servo — the axles' mechanical tie) unserved by the
+differential's logic. Effort: low. Robustness: 2/5. Verdict: rejected — the mode's model
+beats the hack's scrub.
+
+WHY IT HAPPENED
+Verdict: rejected — the mode's model beats the hack's scrub.
+
+FIX (took 3 days)
+replaced by Alternative C — The opposite-phase's model (chosen)
+
+---
+
+E0017 | v8.1 | SMALL | Found Day 208 | Fixed in 3 days | the design review
+File : opposite_phase.py
+Error : design rejected: Alternative D — The controller's tuning alone (the gains' fix, no speed's limit)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the fight's prevention via the controller's gains' retuning (the lower gains
+at the tight radius — the correction's calm without the speed's change). The case for:
+the speed's preservation. The case against, measured on Day 208: the response's lag —
+the gains' reduction at the tight radius (the correction's weakness — the path's
+deviation at the extreme curvature) vs the speed's reduction (the response's time's
+headroom — the calm without the weakness), the fight's onset's speed's dependence (the
+oscillation's threshold — the velocity's term in the dynamics). Effort: medium.
+Robustness: 3/5. Verdict: rejected — the speed's limit beats the gains' weakness.
+
+WHY IT HAPPENED
+Verdict: rejected — the speed's limit beats the gains' weakness.
+
+FIX (took 3 days)
+replaced by Alternative C — The opposite-phase's model (chosen)
+
+---
+
+E0018 | v8.1 | SMALL | Found Day 208 | Fixed in 3 days | the design review
+File : opposite_phase.py
+Error : design rejected: Alternative E — The full-speed's tight turns (no limit)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the opposite-phase at the run's speed — the fight accepted. The case for: the
+run's time's preservation. The case against, measured on Day 208: the fight's cost — the
+controller's oscillation (the path's demand vs the response — the overshoot's weave at
+the tight radius), the turn's failure (the line's loss at the extreme), the tightest
+edge's compromise. Effort: zero. Robustness: 2/5. Verdict: rejected — the mode's speed
+is the mode's calm.
+
+WHY IT HAPPENED
+The case against, measured on Day 208: the fight's cost — the controller's oscillation
+(the path's demand vs the response — the overshoot's weave at the tight radius), the
+turn's failure (the line's loss at the extreme), the tightest edge's compromise.
+Verdict: rejected — the mode's speed is the mode's calm.
+
+FIX (took 3 days)
+replaced by Alternative C — The opposite-phase's model (chosen)
+
+---
+
+## v8.2 - CRAB-WALK + FINAL 4WS KINEMATICS (Day 211-213)
+
+TOTAL ERROR : 9
+SMALL : 8
+BIG : 1
+
+E0019 | v8.2 | BIG | Found Day 211 | Fixed in 3 days | the crab's first runs with the correction active
+File : layer9_kinematics_4ws.py
+Error : the IMU's yaw correction fighting the crab — the sideways motion's wobble
+Terminal : the crab's first runs with the correction active
+
+WHAT HAPPENED
+Day 211, the crab's first runs with the correction active (the baseline's reproduction):
+the IMU's yaw correction *fought the crab motion* — the sideways translation (the axles'
+parallel — the lateral slide with the body's yaw unchanged) vs the correction's command
+(the yaw's control — the steering's compensation for the yaw's deviation), the
+correction's counter-command (the drift that never comes — the sideways motion's absence
+of the yaw's change — the correction commanding the turn's compensation against the
+translation), the wobble (the sideways motion's path's weave — the correction's fight
+against the slide), the parking's precision's loss.
+
+WHY IT HAPPENED
+The relation's break: the correction's assumption (the steering → the yaw) violated by
+the crab's no-yaw-change — the counter-command, the wobble, the precision's loss.
+
+INVESTIGATION (only for BIG errors)
+The relation's break was the diagnosis: the yaw's correction assumes the turning's
+relation (the steering's change → the yaw's change — the compensation's model), and the
+crab's motion breaks the relation (the axles' parallel — the steering's command with the
+yaw's *unchanged* — the no-yaw-change's motion): the correction's command (the
+compensation for the deviation that never comes) is the fight's trigger, and the
+exception (the correction's disable during the crab's commands — the mode-specific
+control exception) is the mode's peace (AC3) — the seed's error's class: the control's
+assumption broken by the mode's physics.
+
+FIX (took 3 days)
+The mode's exception (the shipped feature): the yaw's correction disabled during the
+crab-walk's commands (the correction's gate — the crab's mode's flag — the control's
+bypass during the sideways motion) (AC3). The re-test: the crab's clean slide — the
+wobble's absence, the fight's counter-case preserved.
+
+---
+
+E0020 | v8.2 | SMALL | Found Day 211 | Fixed in 3 days | the layer's first builds
+File : layer9_kinematics_4ws.py
+Error : the layer's config's defaults — the parameters' mismatch, the translation's error
+Terminal : the layer's first builds
+
+WHAT HAPPENED
+Day 211, the layer's first builds: the layer's outputs *mismatched the chassis* — the
+config's defaults (the wheelbase's 200.0 mm, the track's 150.0 mm — the layer's
+fallbacks) diverging from the robot's actual dimensions (the 230 mm's wheelbase — v8.0's
+measurement), the radius's and the servo's mapping's error (the translation's offset —
+the desired curvature to the servo's command's divergence), the steering's commands
+wrong at the runs.
+
+WHY IT HAPPENED
+The config's authority's absence: the defaults' use — the chassis's dimensions wrong —
+the translation's offset.
+
+FIX (took 3 days)
+The config's authority (the shipped layer): the parameters read from the config's
+kinematics_4ws (the measured wheelbase, the ratio — the single source's truth), the
+defaults the fallbacks only (AC1). The re-test: the layer's outputs against the
+chassis's measurements — the translation's agreement, the mismatch's counter-case
+preserved.
+
+---
+
+E0021 | v8.2 | SMALL | Found Day 212 | Fixed in 2 days | the layer's edge cases
+File : layer9_kinematics_4ws.py
+Error : the denominator's guard's absence in the layer — the straight's infinity's return
+Terminal : the layer's edge cases
+
+WHAT HAPPENED
+Day 212, the layer's edge cases: the *straight's infinity* returned — the layer's
+radius's computation (the denominator's guard — v8.0's lesson — the 1e-4's bound)
+unguarded in the first build (the tangent's difference's zero at the near-straight — the
+division's blow-up — the layer's output's nonsense at the straight's commands), the
+trajectory's translation broken at the straight.
+
+WHY IT HAPPENED
+The guard's omission: the migration lost the denominator's bound — the straight's
+division's blow-up, the layer's nonsense.
+
+FIX (took 2 days)
+The guard's restoration (the shipped layer): the denominator's bound (the 1e-4's
+threshold — the radius's infinity — the 99999.0's convention) in the layer's compute
+(AC1). The re-test: the straight's commands — the radius's infinity's convention, the
+blow-up's counter-case preserved.
+
+---
+
+E0022 | v8.2 | SMALL | Found Day 212 | Fixed in 2 days | the integration's runs
+File : layer9_kinematics_4ws.py
+Error : the exception's scope's breadth — the correction's disable beyond the crab, the line's drift
+Terminal : the integration's runs
+
+WHAT HAPPENED
+Day 212, the integration's runs: the correction's disable *spilled beyond the crab* —
+the exception's gate (the correction's bypass) firing for the non-crab commands (the
+gate's flag's persistence — the mode's switch's failure to re-enable — the correction
+off on the straight after the crab), the line's drift (the yaw's deviation uncompensated
+on the straights — the correction's absence — the run's line's drift), the smoothness's
+loss.
+
+WHY IT HAPPENED
+The scope's breadth: the gate's flag persisted — the correction off beyond the crab —
+the straights' drift.
+
+FIX (took 2 days)
+The scope's discipline (the shipped gate): the exception's window (the correction's
+disable during the crab's commands only — the re-enable at the mode's exit) (AC3). The
+re-test: the correction's return after the crab — the straights' drift's absence, the
+spill's counter-case preserved.
+
+---
+
+E0023 | v8.2 | SMALL | Found Day 213 | Fixed in 1 day | the complete runs
+File : layer9_kinematics_4ws.py
+Error : the modes' selection's mapping — the crab's flag's ambiguity, the wrong law's dispatch
+Terminal : the complete runs
+
+WHAT HAPPENED
+Day 213, the complete runs: the mode's selection *dispatched the wrong law* — the crab's
+flag's ambiguity (the mode's signal's encoding — the flag's values' collision — the
+tight turn's command read as the crab's — the opposite-phase's counter vs the crab's
+parallel's confusion), the wrong law's execution (the tight turn at the parallel — the
+radius's expansion — the turn's failure), the parking's approach at the counter (the
+slide's absence — the arc's wide), the modes' roles' compromise.
+
+WHY IT HAPPENED
+The encoding's ambiguity: the flag's values' collision — the wrong law's dispatch — the
+turn's and the slide's failures.
+
+FIX (took 1 day)
+The encoding's discipline (the shipped selection): the mode's enum (the same, the
+opposite, the crab — the distinct values — the plan's section to the layer's dispatch)
+(AC4). The re-test: the sections' modes correct — the tight's counter, the parking's
+crab, the collision's counter-case preserved.
+
+---
+
+E0024 | v8.2 | SMALL | Found Day 211 | Fixed in 3 days | the design review
+File : layer9_kinematics_4ws.py
+Error : design rejected: Alternative A — Keep the scattered functions (do nothing)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the status quo — the same-phase's and the opposite-phase's standalone
+functions, no layer, no crab. The case for: proven, integrated, zero effort. The case
+against, measured on Day 211: the consumption's chaos (the controller's layer calling
+the scattered functions — the selection's logic ad-hoc), the crab's absence (the
+parking's precision unserved), the layer's place unassembled. Effort: zero. Robustness:
+3/5. Verdict: rejected as the sole answer; retained as the baseline.
+
+WHY IT HAPPENED
+Verdict: rejected as the sole answer; retained as the baseline.
+
+FIX (took 3 days)
+replaced by Alternative C — The consolidated layer (chosen)
+
+---
+
+E0025 | v8.2 | SMALL | Found Day 211 | Fixed in 3 days | the design review
+File : layer9_kinematics_4ws.py
+Error : design rejected: Alternative B — The crab via the wheels' hack (the differential's sideways)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the sideways motion via the wheel's differential's hack (the drive's logic's
+emulation — the lateral motion's imitation without the axles' steering). The case for:
+the code's reuse. The case against, in this system: the physics' absence — the 4WS's
+build (the axles' steering — the parallel's geometry) demands the axles' parallel (the
+wheels' paths — the translation's mechanism), the differential's hack (the drive's
+emulation) cannot produce the true lateral translation, the single servo's linkage
+unserved. Effort: low. Robustness: 2/5. Verdict: rejected — the axles' parallel beats
+the drive's emulation.
+
+WHY IT HAPPENED
+The case against, in this system: the physics' absence — the 4WS's build (the axles'
+steering — the parallel's geometry) demands the axles' parallel (the wheels' paths — the
+translation's mechanism), the differential's hack (the drive's emulation) cannot produce
+the true lateral translation, the single servo's linkage unserved. Verdict: rejected —
+the axles' parallel beats the drive's emulation.
+
+FIX (took 3 days)
+replaced by Alternative C — The consolidated layer (chosen)
+
+---
+
+E0026 | v8.2 | SMALL | Found Day 211 | Fixed in 3 days | the design review
+File : layer9_kinematics_4ws.py
+Error : design rejected: Alternative D — The correction's global tuning (the yaw's gain's change, no exception)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the fight's prevention via the yaw's correction's global retuning (the lower
+gains everywhere — the crab's peace without the exception). The case for: the single
+path's simplicity. The case against, measured on Day 211: the turning's cost — the
+global reduction (the same-phase's and the opposite-phase's corrections weakened — the
+line's drift on the straights and the corners) vs the exception (the crab's disable only
+— the other modes' corrections intact), the fight's mode-specificity (the crab's
+no-yaw-change — the correction's meaningless command) demanding the mode's exception.
+Effort: low. Robustness: 3/5. Verdict: rejected — the mode's exception beats the
+global's weakening.
+
+WHY IT HAPPENED
+The case against, measured on Day 211: the turning's cost — the global reduction (the
+same-phase's and the opposite-phase's corrections weakened — the line's drift on the
+straights and the corners) vs the exception (the crab's disable only — the other modes'
+corrections intact), the fight's mode-specificity (the crab's no-yaw-change — the
+correction's meaningless command) demanding the mode's exception. Verdict: rejected —
+the mode's exception beats the global's weakening.
+
+FIX (took 3 days)
+replaced by Alternative C — The consolidated layer (chosen)
+
+---
+
+E0027 | v8.2 | SMALL | Found Day 211 | Fixed in 3 days | the design review
+File : layer9_kinematics_4ws.py
+Error : design rejected: Alternative E — The correction's persistence (the fight accepted)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the crab with the yaw's correction active — the fight accepted. The case for:
+the code's untouched. The case against, measured on Day 211: the fight's cost — the
+correction's counter-command (the crab's sideways motion fighting the turn's
+compensation — the translation's wobble, the parking's precision's loss), the edge's
+compromise. Effort: zero. Robustness: 2/5. Verdict: rejected — the exception is the
+feature's form.
+
+WHY IT HAPPENED
+Verdict: rejected — the exception is the feature's form.
+
+FIX (took 3 days)
+replaced by Alternative C — The consolidated layer (chosen)
+
+---
+
+## v8.3 - SURPRISE RULES CONFIGURATION (Day 214-216)
+
+TOTAL ERROR : 9
+SMALL : 8
+BIG : 1
+
+E0028 | v8.3 | BIG | Found Day 214 | Fixed in 3 days | venue
+File : robot_config.json
+Error : {
+Terminal : venue
+
+WHAT HAPPENED
+Day 214, the config's first load (the baseline's reproduction): the config's file loaded
+with the UTF-8's BOM *broke the JSON's parsing* — the file's byte-order-mark (the EF BB
+BF's bytes — the editor's save's artifact — the invisible prefix before the JSON's
+opening brace), the parser's rejection (the leading bytes before the `{` — the JSON's
+syntax's error — the load's exception), the boot's config's read's crash (the robot's
+start's failure — the dead boot), the robot unable to start with the venue's edited
+file.
+
+WHY IT HAPPENED
+The encoding's artifact unguarded: the BOM's bytes before the brace — the parser's
+rejection — the load's crash, the boot's dead start.
+
+INVESTIGATION (only for BIG errors)
+The encoding's artifact was the diagnosis: the UTF-8's BOM (the byte-order-mark — the
+editor's save's signature — the invisible bytes at the file's start) is the artifact of
+the editors' and the systems' saves (the venue's laptop's editor, the transfer's tool),
+and the JSON's parser's strictness (the leading bytes' rejection — the syntax's error at
+the first character) turns the artifact into the load's crash: the load's force (the
+utf-8's explicit encoding — the BOM's rejection or the strip — the parse's clean) is the
+load's guard (AC3), and the unguarded load is the boot's dead start — the seed's error's
+class.
+
+FIX (took 3 days)
+The encoding's force (the shipped guard): the config's load with the utf-8's encoding
+forced (the BOM's rejection or the strip — the parse's clean), the file validated at the
+boot (AC3). The re-test: the BOM'd file's load — the clean parse, the crash's
+counter-case preserved.
+
+---
+
+E0029 | v8.3 | SMALL | Found Day 214 | Fixed in 3 days | venue
+File : robot_config.json
+Error : the rules' scatter — the consumers' mixed sources, the partial flip
+Terminal : venue
+
+WHAT HAPPENED
+Day 214, the venue's simulation's first change: the rule's flip *partial* — the
+SIGN_LOGIC's change (the config's edit — the section's flip) leaving the mission's
+module's constant untouched (the consumer's read from the code's literal — the mixed
+source — the module's logic still the old value), the pass's side unflipped despite the
+config's edit, the interface's contract's illusion.
+
+WHY IT HAPPENED
+The source's mix: the consumers' literals un-migrated — the section's flip partial — the
+rule's execution old.
+
+FIX (took 3 days)
+The unification's completion (the shipped section): every consumer's read migrated to
+the section (the seven rules' single home — the literals' removal) (AC1). The re-test:
+the flip's completeness — the config's edit flips the execution everywhere, the
+partial's counter-case preserved.
+
+---
+
+E0030 | v8.3 | SMALL | Found Day 215 | Fixed in 2 days | venue
+File : robot_config.json
+Error : the validation's absence — the typo's value's silent run, the day's wrongness
+Terminal : venue
+
+WHAT HAPPENED
+Day 215, the venue's simulation's second change: the misconfigured value *ran silently*
+— the config's edit's typo (the STOP_DURATION_SEC's value — the stop's window's
+absurdity, or the SIGN_LOGIC's misspelling — the enum's typo) unvalidated at the boot
+(the load's acceptance — the wrong value's read), the run's behavior's wrongness (the
+stop's duration's nonsense, the pass's side's fallback), the day's run's silent failure.
+
+WHY IT HAPPENED
+The validation's absence: the typo's value accepted — the silent wrongness — the day's
+run's failure.
+
+FIX (took 2 days)
+The boot's validation (the shipped gate): the values' sanity at the load (the enums'
+membership, the ranges — the invalid's rejection with the clear error naming the key)
+(AC4). The re-test: the typo'd file's rejection — the clear error, the silent run's
+counter-case preserved.
+
+---
+
+E0031 | v8.3 | SMALL | Found Day 215 | Fixed in 2 days | the integration's first boot
+File : robot_config.json
+Error : the load's path's mismatch — the config's location's error, the boot's file-not-found
+Terminal : the integration's first boot
+
+WHAT HAPPENED
+Day 215, the integration's first boot: the boot's load *failed to find the file* — the
+config's path's mismatch (the system manager's path — the launch's directory's relative
+path — the config's location's error — the run's cwd's difference), the file-not-found's
+exception (the boot's crash — the robot's dead start), the config's load's reliability
+broken by the path's assumption.
+
+WHY IT HAPPENED
+The path's assumption: the relative path's dependence — the run's cwd's difference — the
+file-not-found, the boot's crash.
+
+FIX (took 2 days)
+The path's resolution (the shipped load): the config's path resolved absolutely (the
+project's root's canonical form — the run's directory's independence) (AC3). The
+re-test: the boot from any directory — the config's load, the mismatch's counter-case
+preserved.
+
+---
+
+E0032 | v8.3 | SMALL | Found Day 216 | Fixed in 1 day | venue
+File : robot_config.json
+Error : the validation's over-reach — the boot's halt on the minor's drift, the day's deadlock
+Terminal : venue
+
+WHAT HAPPENED
+Day 216, the venue's rehearsal: the validation *halted the boot* — the strict
+validation's rejection (the minor's drift — the value's slight deviation from the
+nominal — the range's tightness — the file's edit's float's representation) triggering
+the boot's halt (the invalid's rejection — the deadlock — the robot unable to start
+despite the rule's sanity), the day's readiness blocked by the validation's over-reach.
+
+WHY IT HAPPENED
+The validation's over-reach: the bounds' tightness — the sane's rejection — the boot's
+halt, the day's deadlock.
+
+FIX (took 1 day)
+The validation's calibration (the shipped balance): the bounds with the tolerances (the
+sane's acceptance — the floats' nuances — the absurd's rejection), the rejection's
+scoping to the meaningless (AC4). The re-test: the sane file's boot — the deadlock's
+absence, the over-reach's counter-case preserved.
+
+---
+
+E0033 | v8.3 | SMALL | Found Day 214 | Fixed in 3 days | the design review
+File : robot_config.json
+Error : design rejected: Alternative A — Keep the code's constants (do nothing)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the status quo — the rules in the mission's modules and the layers' literals,
+the venue's changes the code's edits. The case for: proven, integrated, zero effort. The
+case against, measured on Day 214: the venue's risk (the last-minute's recompile — the
+error's door at the competition), the constants' scatter (the missed constant — the
+partial flip), the interface's absence. Effort: zero. Robustness: 3/5. Verdict: rejected
+as the sole answer; retained as the baseline.
+
+WHY IT HAPPENED
+Verdict: rejected as the sole answer; retained as the baseline.
+
+FIX (took 3 days)
+replaced by Alternative C — The config's section (chosen)
+
+---
+
+E0034 | v8.3 | SMALL | Found Day 214 | Fixed in 3 days | the design review
+File : robot_config.json
+Error : design rejected: Alternative B — The environment's variables (the system's envs)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the rules via the environment's variables (the system's settings — the shell's
+exports — the runtime's read). The case for: the deployment's commonality. The case
+against, in this system: the venue's ergonomics — the environment's variables (the
+shell's session — the Pi's boot's context) less editable than the JSON (the file's edit
+— the single change), the config's single-file's clarity (the robot's settings' home)
+split across the envs. Effort: low. Robustness: 3/5. Verdict: rejected — the config's
+file beats the envs' scatter.
+
+WHY IT HAPPENED
+Verdict: rejected — the config's file beats the envs' scatter.
+
+FIX (took 3 days)
+replaced by Alternative C — The config's section (chosen)
+
+---
+
+E0035 | v8.3 | SMALL | Found Day 214 | Fixed in 3 days | the design review
+File : robot_config.json
+Error : design rejected: Alternative D — The runtime's UI (the touchscreen's editor)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the rules via the robot's runtime's UI (the on-board editor — the venue's
+touchscreen's changes). The case for: the venue's friendliness. The case against, in
+this system: the complexity's cost — the UI's build (the touchscreen's interface, the
+input's handling) beyond the phase's scope, the JSON's edit (the laptop's or the phone's
+editor — the file's transfer) sufficient for the venue's change. Effort: high.
+Robustness: 4/5. Verdict: rejected — the file's edit beats the UI's complexity.
+
+WHY IT HAPPENED
+Verdict: rejected — the file's edit beats the UI's complexity.
+
+FIX (took 3 days)
+replaced by Alternative C — The config's section (chosen)
+
+---
+
+E0036 | v8.3 | SMALL | Found Day 214 | Fixed in 3 days | the design review
+File : robot_config.json
+Error : design rejected: Alternative E — The code's flags only (the argument's switches)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the rules via the launch's arguments (the command-line's switches — the run's
+flags). The case for: the runtime's directness. The case against, in this system: the
+rules' number (the seven — the switches' sprawl — the launch's line's length), the
+persistence (the flags per launch — the reboot's re-entry), the config's single source
+(the file's home) absent. Effort: low. Robustness: 3/5. Verdict: rejected — the config's
+file beats the flags' sprawl.
+
+WHY IT HAPPENED
+Verdict: rejected — the config's file beats the flags' sprawl.
+
+FIX (took 3 days)
+replaced by Alternative C — The config's section (chosen)
+
+---
+
+## v8.4 - PILLAR PASS-SIDE TRACKER (Day 217-219)
+
+TOTAL ERROR : 9
+SMALL : 8
+BIG : 1
+
+E0037 | v8.4 | BIG | Found Day 217 | Fixed in 3 days | the pass's runs
+File : pillar_pass_side.py
+Error : the double counting — the same pillar's two decisions
+Terminal : the pass's runs
+
+WHAT HAPPENED
+Day 217, the pass's runs (the baseline's reproduction): the *same pillar triggered two
+avoidance decisions* — the pillar's detection persisting through the approach (the
+marker's presence in the camera's frames — the detection's continuous firings), the
+event's re-fire (the same pillar's repeated triggers — the avoidance's decision at the
+first, the second at the persistence's next), the avoidance's double-execution (the
+offset's commitment's repeat — the run's zigzag at the pillar — the pass's line's
+confusion), the run's flow's disruption.
+
+WHY IT HAPPENED
+The event's discipline absent: the detection's re-fires — the same pillar's two
+decisions — the avoidance's double-execution, the run's confusion.
+
+INVESTIGATION (only for BIG errors)
+The event's discipline was the diagnosis: the pillar's detection (the camera's frames —
+the marker's persistence through the approach — the physical pillar's passage's duration
+at the pass's speed) re-fires the event (each frame's detection — the continuous
+triggers), and the pass's decision (the avoidance's execution) needs the *event's*
+discipline (the once-per-pillar — the decision's single execution): the cooldown (the
+500 ms's gate — the re-fire's window — the same pillar's second decision's suppression)
+(AC3) is the discipline — the universal fix, the lesson's shape — and the unguarded
+events are the double counting's door.
+
+FIX (took 3 days)
+The events' cooldown (the shipped gate): the 500 ms's window on the pillar's events (the
+same pillar's second decision suppressed — the once-per-pillar's execution) (AC3). The
+re-test: the pass's single decision — the run's line clean, the double counting's
+counter-case preserved.
+
+---
+
+E0038 | v8.4 | SMALL | Found Day 217 | Fixed in 3 days | the REVERSED's first runs
+File : pillar_pass_side.py
+Error : the mapping's reversal's confusion — the REVERSED's sides' swap, the sign's wrong pass
+Terminal : the REVERSED's first runs
+
+WHAT HAPPENED
+Day 217, the REVERSED's first runs: the reversal's mapping *confused the sides* — the
+REVERSED's translation (the green → the RIGHT, the red → the LEFT — the flip)
+implemented as the partial swap (the green's side flipped, the red's retained — the
+mapping's asymmetry — the day's logic's misread), the red's pass at the wrong side (the
+REVERSED's red → the RIGHT — the old side — the rule's violation), the sign's execution
+wrong.
+
+WHY IT HAPPENED
+The flip's asymmetry: the partial swap — the one color's side retained — the sign's
+wrong pass.
+
+FIX (took 3 days)
+The mapping's completeness (the shipped adapter): the REVERSED's full flip (the green to
+the RIGHT, the red to the LEFT — both colors' sides) (AC1). The re-test: the four
+combinations verified — the REVERSED's runs' sides correct, the asymmetry's counter-case
+preserved.
+
+---
+
+E0039 | v8.4 | SMALL | Found Day 218 | Fixed in 2 days | the slow approach's runs
+File : pillar_pass_side.py
+Error : the cooldown's window's brevity — the pillar's persistence beyond the 500 ms, the re-fire's return
+Terminal : the slow approach's runs
+
+WHAT HAPPENED
+Day 218, the slow approach's runs: the double counting *returned* — the cooldown's
+window (the 500 ms — tuned for the pass's speed's approach) exceeded by the slow
+approach's persistence (the pillar's marker in the frames beyond the window — the slow
+crawl's longer passage — the detection's firings after the 500 ms), the second decision
+after the window's expiry, the double counting's return at the slow speeds.
+
+WHY IT HAPPENED
+The window's brevity: the 500 ms below the slow approach's persistence — the re-fire
+after the expiry, the double counting's return.
+
+FIX (took 2 days)
+The window's sufficiency (the shipped cooldown): the 500 ms re-measured against the
+slowest approach (the pillar's persistence's maximum — the window covering the span with
+the margin) (AC3). The re-test: the slow approach's single decision — the re-fire's
+absence, the brevity's counter-case preserved.
+
+---
+
+E0040 | v8.4 | SMALL | Found Day 218 | Fixed in 2 days | venue
+File : pillar_pass_side.py
+Error : the adapter's stale read — the config's flip unreflected, the sign's old logic
+Terminal : venue
+
+WHAT HAPPENED
+Day 218, the venue's rehearsal: the config's flip *unreflected* — the SIGN_LOGIC's
+change (the venue's edit — the config's section's REVERSED) not read by the adapter (the
+adapter's initialization at the boot — the value's snapshot — the flip after the boot
+unreflected without the restart), the sign's old logic (the NORMAL's mapping at the run
+— the venue's flip ignored), the day's rule violated.
+
+WHY IT HAPPENED
+The read's staleness: the snapshot's capture — the flip unreflected — the sign's old
+logic, the rule's violation.
+
+FIX (took 2 days)
+The read's freshness (the shipped adapter): the SIGN_LOGIC's value read at the run's
+start (the boot's read or the config's reload — the venue's flip's reflection) (AC4).
+The re-test: the config's flip before the run — the adapter's update — the new logic's
+execution, the staleness's counter-case preserved.
+
+---
+
+E0041 | v8.4 | SMALL | Found Day 219 | Fixed in 1 day | the detection's edge cases
+File : pillar_pass_side.py
+Error : the fallback's silence — the unknown color's CENTER, the pass's stall
+Terminal : the detection's edge cases
+
+WHAT HAPPENED
+Day 219, the detection's edge cases: the *unknown color's CENTER* stalled the pass — the
+detection's ambiguous read (the pillar's color unrecognized — the lighting's shift — the
+green's or the red's confusion) returning the adapter's "CENTER" (the unknown's
+fallback), the mission's layer's pass's decision at the CENTER (the direction's absence
+— the pass's stall — the avoidance's non-execution at the pillar), the run's obstacle's
+collision's risk.
+
+WHY IT HAPPENED
+The fallback's silence: the CENTER without the handling — the mission's undefined
+behavior — the pass's stall, the collision's risk.
+
+FIX (took 1 day)
+The fallback's contract (the shipped handling): the unknown color's response defined
+(the CENTER's meaning — the mission's conservative's action — the safest's pass) (AC2).
+The re-test: the ambiguous detection's run — the defined response, the stall's
+counter-case preserved.
+
+---
+
+E0042 | v8.4 | SMALL | Found Day 217 | Fixed in 3 days | the design review
+File : pillar_pass_side.py
+Error : design rejected: Alternative A — Keep the literal's mapping (do nothing)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the status quo — the color's literal's direction (the green → the LEFT, the
+red → the RIGHT — the hard-coded sides), the SIGN_LOGIC ignored. The case for: proven,
+integrated, zero effort. The case against, measured on Day 217: the sign's silence (the
+venue's reversal unexecuted — the day's rule violated), the config's illusion (v8.3's
+section — the value's read absent). Effort: zero. Robustness: 3/5. Verdict: rejected as
+the sole answer; retained as the baseline.
+
+WHY IT HAPPENED
+Verdict: rejected as the sole answer; retained as the baseline.
+
+FIX (took 3 days)
+replaced by Alternative C — The SurpriseRuleAdapter (chosen)
+
+---
+
+E0043 | v8.4 | SMALL | Found Day 217 | Fixed in 3 days | the design review
+File : pillar_pass_side.py
+Error : design rejected: Alternative B — The mission's hard-coded flip (the code's switch)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the sign's reversal via the code's change (the mission's module's switch — the
+code's literal's flip at the venue). The case for: the minimal change. The case against,
+in this system: the venue's risk (the last-minute's recompile — v8.3's lesson — the
+interface's contract violated — the config's section unused), the surprise's day's flip
+(the code's change — the minutes' window) unserved. Effort: low. Robustness: 2/5.
+Verdict: rejected — the adapter's read beats the code's flip.
+
+WHY IT HAPPENED
+Verdict: rejected — the adapter's read beats the code's flip.
+
+FIX (took 3 days)
+replaced by Alternative C — The SurpriseRuleAdapter (chosen)
+
+---
+
+E0044 | v8.4 | SMALL | Found Day 217 | Fixed in 3 days | the design review
+File : pillar_pass_side.py
+Error : design rejected: Alternative D — The detection's refinement (the event's uniqueness, no cooldown)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the double counting's fix via the detection's refinement (the pillar's
+tracking — the same pillar's identification — the event's uniqueness, no cooldown's
+gate). The case for: the event's precision. The case against, in this system: the
+tracking's complexity — the pillar's identification (the object's tracking — the
+persistence's association) heavier than the cooldown's gate (the time's window — the
+re-fire's suppression), the cooldown's sufficiency (the pillar's approach's window — the
+500 ms covering the re-fire's span) unproven but likely. Effort: high. Robustness: 3/5.
+Verdict: rejected — the cooldown's gate beats the tracking's complexity.
+
+WHY IT HAPPENED
+Verdict: rejected — the cooldown's gate beats the tracking's complexity.
+
+FIX (took 3 days)
+replaced by Alternative C — The SurpriseRuleAdapter (chosen)
+
+---
+
+E0045 | v8.4 | SMALL | Found Day 217 | Fixed in 3 days | the design review
+File : pillar_pass_side.py
+Error : design rejected: Alternative E — The event's rate-limit (the frequency's cap)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the double counting's fix via the event's rate-limit (the decisions'
+frequency's cap — the events' global rate). The case for: the rate's simplicity. The
+case against, in this system: the scope's breadth — the global rate (all the events' cap
+— the *different* pillars' decisions delayed — the next pillar's pass's decision late)
+vs the cooldown's window (the per-event's gate — the same pillar's re-fire only), the
+mission's flow's latency. Effort: low. Robustness: 3/5. Verdict: rejected — the
+cooldown's window beats the rate's breadth.
+
+WHY IT HAPPENED
+Verdict: rejected — the cooldown's window beats the rate's breadth.
+
+FIX (took 3 days)
+replaced by Alternative C — The SurpriseRuleAdapter (chosen)
+
+---
+
+## v8.5 - FULL PARKING DETECTOR (Day 220-222)
+
+TOTAL ERROR : 9
+SMALL : 8
+BIG : 1
+
+E0046 | v8.5 | BIG | Found Day 220 | Fixed in 3 days | venue
+File : parking_detect.py
+Error : the shadows' break — the venue's lighting's marker's miss
+Terminal : venue
+
+WHAT HAPPENED
+Day 220, the venue's lighting's rehearsal (the baseline's reproduction): the shadows
+*broke the marker's detection* — the venue's lighting (the arena's lights' and the
+windows' sun's cast — the shadows across the marker) obscuring the magenta's detection
+(the marker's area's drop below the gate — the detection's miss — the parking's
+trigger's failure), the SEARCHING's persistence at the zone (the readiness never true —
+the completion's stall), the parking's precision's loss.
+
+WHY IT HAPPENED
+The lighting's variance unguarded: the shadowed marker's degradation — the area's drop —
+the trigger's miss, the completion's stall.
+
+INVESTIGATION (only for BIG errors)
+The lighting's variance was the diagnosis: the venue's lighting (the brightness's
+variance — the arena's conditions) is the adversary — the shadowed marker (the
+darkness's obscuring — the magenta's area's degradation) breaks the bare detection (the
+fixed thresholds — the area's measurement without the normalization): the defense (the
+exposure's compensation — the brightness's normalization — the variance's absorption;
+the saturation-based masking — the magenta's saturation's signature — the shadows'
+grey's rejection — the hue's robustness to the darkness) (AC2) is the worst case's
+preparation — the lesson's shape: venue lighting is an adversary, build for its worst
+case — the seed's error's class.
+
+FIX (took 3 days)
+The lighting's defense (the shipped pipeline): the exposure's compensation (the
+brightness's normalization) and the saturation-based masking (the shadows' rejection —
+the magenta's saturation's signature) before the area's measurement (AC2). The re-test:
+the shadowed marker's detection — the trigger's reliability, the break's counter-case
+preserved.
+
+---
+
+E0047 | v8.5 | SMALL | Found Day 220 | Fixed in 3 days | the fusion's first builds
+File : parking_detect.py
+Error : the fusion's precedence — the gate's bypass, the readiness's wrong truth
+Terminal : the fusion's first builds
+
+WHAT HAPPENED
+Day 220, the fusion's first builds: the fusion's precedence *bypassed the gate* — the
+readiness's decision (the pieces' conjunction) evaluating the alignment before the gate
+(the marker's absence — the alignment's offset still computed — the readiness's true
+despite the marker's miss — the wrong truth — the trigger's early entry), the parking's
+attempt at the wrong place.
+
+WHY IT HAPPENED
+The gate's bypass: the alignment's evaluation at the marker's absence — the readiness's
+wrong truth — the early trigger.
+
+FIX (took 3 days)
+The gate's precedence (the shipped fusion): the marker's gate first — the absence's
+short-circuit (the readiness's False before the alignment's computation) (AC1). The
+re-test: the marker's absence — the readiness's False, the bypass's counter-case
+preserved.
+
+---
+
+E0048 | v8.5 | SMALL | Found Day 221 | Fixed in 2 days | the alignment's runs
+File : parking_detect.py
+Error : the offset's sign's confusion — the walls' order, the alignment's wrong side
+Terminal : the alignment's runs
+
+WHAT HAPPENED
+Day 221, the alignment's runs: the offset's *sign confused the sides* — the walls' order
+(the left's and the right's assignment — the ToFs' mapping) inverted in the offset's
+computation (the left-right's difference's half — the sign's flip — the position's
+deviation's side wrong), the alignment's correction (the maneuver's offset's use)
+compensating to the wrong side, the parking's position's error.
+
+WHY IT HAPPENED
+The convention's inversion: the walls' assignment swapped — the offset's sign flipped —
+the wrong-side's correction.
+
+FIX (took 2 days)
+The convention's verification (the shipped alignment): the sensors' mapping confirmed
+(the left ToF to the left_wall — the right's to the right_wall — the physical's sides),
+the offset's sign's test (AC3). The re-test: the deviation's side correct — the
+correction's right side, the confusion's counter-case preserved.
+
+---
+
+E0049 | v8.5 | SMALL | Found Day 221 | Fixed in 2 days | the parking's runs
+File : parking_detect.py
+Error : the tolerance's looseness — the 25 mm's bound, the alignment's false peace
+Terminal : the parking's runs
+
+WHAT HAPPENED
+Day 221, the parking's runs: the alignment's tolerance *allowed the drift* — the
+aligned_tol's value (the 25 mm — the exactness's bound) too loose for the zone's scoring
+(the parked position's offset below the bound but beyond the scoring's exactness — the
+points' loss — the alignment's false peace), the completion's score's drain.
+
+WHY IT HAPPENED
+The tolerance's looseness: the bound beyond the scoring's exactness — the false peace —
+the completion's points' loss.
+
+FIX (took 2 days)
+The tolerance's calibration (the shipped bound): the aligned_tol measured against the
+scoring's thresholds (the offset's bound within the points' window — the exactness's
+match) (AC3). The re-test: the parked positions within the scoring's exactness — the
+points' preservation, the looseness's counter-case preserved.
+
+---
+
+E0050 | v8.5 | SMALL | Found Day 222 | Fixed in 1 day | the integration's runs
+File : parking_detect.py
+Error : the detector's staleness — the pieces' rates' mismatch, the decision's lag
+Terminal : the integration's runs
+
+WHAT HAPPENED
+Day 222, the integration's runs: the detector's decision *lagged* — the pieces' rates'
+mismatch (the camera's 30 FPS's marker vs the ToFs' 100 Hz's walls — the sampling's skew
+— the alignment's reading at the camera's frame's rate, the offset's staleness during
+the approach), the readiness's decision at the stale alignment (the position's truth
+delayed — the maneuver's entry at the old offset), the parking's correction's error.
+
+WHY IT HAPPENED
+The pieces' skew: the rates' mismatch — the offset's staleness at the gate — the
+decision's lag, the correction's error.
+
+FIX (took 1 day)
+The pieces' coherence (the shipped fusion): the reads' sync (the offset's computation at
+the gate's crossing — the ToFs' latest readings at the marker's moment — the freshness's
+truth) (AC1). The re-test: the decision at the coherent moment — the correction's
+accuracy, the lag's counter-case preserved.
+
+---
+
+E0051 | v8.5 | SMALL | Found Day 220 | Fixed in 3 days | the design review
+File : parking_detect.py
+Error : design rejected: Alternative A — Keep the separate pieces (do nothing)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the status quo — the marker's gate in the parking's machine, the alignment in
+the mission's module, no fusion, no lighting's defense. The case for: proven,
+integrated, zero effort. The case against, measured on Day 220: the fragmentation (the
+separate calls — the readiness's scattered inputs), the shadows' break (the venue's
+lighting unguarded — the trigger's miss), the precision unserved. Effort: zero.
+Robustness: 3/5. Verdict: rejected as the sole answer; retained as the baseline.
+
+WHY IT HAPPENED
+Verdict: rejected as the sole answer; retained as the baseline.
+
+FIX (took 3 days)
+replaced by Alternative C — The fused detector (chosen)
+
+---
+
+E0052 | v8.5 | SMALL | Found Day 220 | Fixed in 3 days | the design review
+File : parking_detect.py
+Error : design rejected: Alternative B — The gate-only's reliance (the marker's detection alone)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the parking's readiness via the marker's gate alone (the area's 1500 — the
+detection's single signal). The case for: the detection's simplicity. The case against,
+in this system: the completeness's absence — the marker's gate alone (the recognition)
+without the alignment's proof (the position's truth) — the parked geometry (the
+alignment — v7.7's lesson — parking is alignment, not arrival) unserved, the precision's
+pieces unfused. Effort: low. Robustness: 2/5. Verdict: rejected — the fusion beats the
+gate's alone.
+
+WHY IT HAPPENED
+Verdict: rejected — the fusion beats the gate's alone.
+
+FIX (took 3 days)
+replaced by Alternative C — The fused detector (chosen)
+
+---
+
+E0053 | v8.5 | SMALL | Found Day 220 | Fixed in 3 days | the design review
+File : parking_detect.py
+Error : design rejected: Alternative D — The vision's full pose (the marker's geometry)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the parking's readiness via the camera's full pose's estimation (the marker's
+corners — the pose's computation — the position's and the orientation's exactness). The
+case for: the vision's precision. The case against, in this system: the vision's
+dependence — the pose's estimation (the corners' detection, the solvePnP's — the
+calibration's need) heavier and less robust than the fusion (the ToF's offset — the
+existing sensors — the alignment's proof), the venue's lighting's variance (the pose's
+features' degradation) riskier. Effort: high. Robustness: 3/5. Verdict: rejected — the
+fusion's robustness beats the pose's precision's dependence.
+
+WHY IT HAPPENED
+Verdict: rejected — the fusion's robustness beats the pose's precision's dependence.
+
+FIX (took 3 days)
+replaced by Alternative C — The fused detector (chosen)
+
+---
+
+E0054 | v8.5 | SMALL | Found Day 220 | Fixed in 3 days | the design review
+File : parking_detect.py
+Error : design rejected: Alternative E — The alignment-only's reliance (the walls' offset alone)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the parking's readiness via the walls' alignment alone (the offset's tolerance
+— the position's truth). The case for: the ToF's simplicity. The case against, in this
+system: the recognition's absence — the alignment alone (the centeredness) without the
+marker's gate (the zone's recognition) — the parking's trigger (the zone's signature)
+unserved, the machine's SEARCHING's end undefined. Effort: low. Robustness: 2/5.
+Verdict: rejected — the fusion beats the alignment's alone.
+
+WHY IT HAPPENED
+Verdict: rejected — the fusion beats the alignment's alone.
+
+FIX (took 3 days)
+replaced by Alternative C — The fused detector (chosen)
+
+---
+
+## v8.6 - TRACK MAP GEOMETRY (Day 223-225)
+
+TOTAL ERROR : 5
+SMALL : 4
+BIG : 1
+
+E0055 | v8.6 | BIG | Found Day 223 | Fixed in 3 days | the map's first runs
+File : track_map.py
+Error : the distance's accumulation — the map's drift
+Terminal : the map's first runs
+
+WHAT HAPPENED
+Day 223, the map's first runs: the distance's error *accumulated along the map* — the
+map's positions' drift (the corner's anticipation at the wrong meter — the
+deceleration's lead starting too early or too late — the sections' misalignment with the
+physical's track), the planning's confidence's loss, the corner's entry's error.
+
+WHY IT HAPPENED
+The accumulation unguarded: the map's positions integrated without the re-anchoring —
+the drift growing with the distance — the anticipation at the wrong meter.
+
+INVESTIGATION (only for BIG errors)
+The origin's absence was the diagnosis: the map's positions (the section's locations
+along the mission) built from the odometry's integration (the wheel's counts — the
+distance's accumulation from the start's line), the small errors compounding (each
+reading's error added to the next — the position's error growing with the distance — the
+map's truth decaying), and the correction is the map's discipline — the origin's reset
+at the known fiducial (the start's line — the mission's reference — the re-anchoring —
+the drift's zeroing — the accumulation's window's bound) (AC4): the seed's error's class
+— the accumulation's unguarded growth. The lesson's shape: maps reset at known fiducials
+— that is the whole trick.
+
+FIX (took 3 days)
+The origin's reset (the shipped discipline): the world's origin re-anchored at the
+start's line each run (the light's sensors' crossing measured — the odometry's fresh
+integration — the drift's bound) (AC4). The re-test: the positions' accuracy across the
+repeated runs — the drift's window bounded, the accumulation's counter-case preserved.
+
+---
+
+E0056 | v8.6 | SMALL | Found Day 223 | Fixed in 3 days | the classifier's builds
+File : track_map.py
+Error : the thresholds' cascade's order — the classifier's confusion
+Terminal : the classifier's builds
+
+WHAT HAPPENED
+Day 223, the classifier's builds: the thresholds' cascade *confused the sections* — the
+cascade's order (the checks' sequence — the 550 mm's check before the 350 mm's)
+classifying the corner's turn (the front distance below the 350 mm) as the corner's
+approach (the 550 mm's check's match first — the wrong class — the anticipation instead
+of the turn's reduced speed), the speed's profile's wrong shaping.
+
+WHY IT HAPPENED
+The cascade's order's inversion: the loose threshold's check first — the turn's class
+captured by the approach's — the speed's profile's error.
+
+FIX (took 3 days)
+The cascade's reorder (the shipped classifier): the corner's turn's check (the 350 mm)
+first — the corner's approach's (the 550 mm) second — the straightaway's default (AC1).
+The re-test: the sections at the known distances — the classes' correctness, the
+confusion's counter-case preserved.
+
+---
+
+E0057 | v8.6 | SMALL | Found Day 224 | Fixed in 2 days | the width's runs
+File : track_map.py
+Error : the width's arithmetic's sign — the gaps' subtraction, the lane's wrong measure
+Terminal : the width's runs
+
+WHAT HAPPENED
+Day 224, the width's runs: the lane's width's *arithmetic measured the gap, not the
+lane* — the form's variant (the left's minus the right's — the difference instead of the
+sum) reporting the position's offset (the alignment's measure — the parking's v8.5's
+input) as the lane's width (the track's total — the planning's input), the narrow's
+detection triggered by the offset's noise (the width's false drops — the mode's wrong
+switches).
+
+WHY IT HAPPENED
+The forms' conflation: the difference's use as the width — the offset's noise — the
+mode's false switches, the lane's wrong measure.
+
+FIX (took 2 days)
+The form's verification (the shipped estimation): lane_width_mm = left + right +
+vehicle_width — the sum's test against the known lanes (AC2). The re-test: the known
+lanes measured truly — the arithmetic's truth, the conflation's counter-case preserved.
+
+---
+
+E0058 | v8.6 | SMALL | Found Day 224 | Fixed in 2 days | the mission's drills
+File : track_map.py
+Error : the thresholds' calibration — the fixed bounds vs the mission's courses
+Terminal : the mission's drills
+
+WHAT HAPPENED
+Day 224, the mission's drills: the thresholds' *fixed bounds misclassified the mission's
+courses* — the 350/550 mm (the calibration against the drills' corners) too tight or
+loose for the mission's corners' classes (the approach's width's variance — the turn's
+tightness's variance — the sections' misread at the mission's speeds), the speed's
+lead's mistiming.
+
+WHY IT HAPPENED
+The calibration's context's miss: the bounds tuned to the drills' classes — the
+mission's variance unmeasured — the sections' misread.
+
+FIX (took 2 days)
+The calibration's redo (the shipped thresholds): the 350/550 mm measured against the
+mission's courses (the representative corners' front distances — the bounds' placement
+within the classes' variance) (AC1). The re-test: the mission's drills' sections correct
+— the classes' truth, the misread's counter-case preserved.
+
+---
+
+E0059 | v8.6 | SMALL | Found Day 225 | Fixed in 1 day | the integration's runs
+File : track_map.py
+Error : the reset's trigger's miss — the start's crossing's noise
+Terminal : the integration's runs
+
+WHAT HAPPENED
+Day 225, the integration's runs: the reset's *trigger missed the start's crossing* — the
+light's sensors' noise (the readings' flicker at the line — the threshold's edge — the
+crossing's detection unreliable — the origin's reset skipped or doubled), the map's
+positions' drift creeping back (the reset's miss — the accumulation's return — the
+anticipation's error), the run's truth's decay.
+
+WHY IT HAPPENED
+The crossing's noise unguarded: the flicker's acceptance — the reset's miss or double —
+the drift's return.
+
+FIX (took 1 day)
+The crossing's robustness (the shipped reset): the sustained drop's confirmation (the
+debounce window — the reset once per run — the crossing's certainty) (AC4). The re-test:
+the start's crossings reliable across the runs — the reset's truth, the flicker's
+counter-case preserved.
+
+---
+
+## v8.7 - MULTI-RATE SCHEDULER (Day 226-228)
+
+TOTAL ERROR : 5
+SMALL : 4
+BIG : 1
+
+E0060 | v8.7 | BIG | Found Day 226 | Fixed in 3 days | the first threaded builds
+File : scheduler.py
+Error : the async's drift — the threads' desynchronization
+Terminal : the first threaded builds
+
+WHAT HAPPENED
+Day 226, the first threaded builds: the threads *gradually desynchronized* from the main
+loop — the sensor's thread's cadence decaying (the 100 Hz's promise drifting toward the
+80s and the 70s — the sampling's thinning — the control's resolution's loss), the
+camera's thread's cadence wandering, the samples' rates' divergence.
+
+WHY IT HAPPENED
+The chained sleeps' accumulation: each cycle's overshoot added — the periods' growth —
+the threads' divergence — the cadences' decay.
+
+INVESTIGATION (only for BIG errors)
+The chained sleeps' accumulation was the diagnosis: the loop's pattern (the fn's call,
+then the sleep's period — the fn's duration's add — each cycle's period = the fn's time
++ the sleep's time — the overshoot's accumulation — the cadence's slowdown), and the fix
+is the absolute-time's discipline — the deadline's math (the previous's deadline + the
+period — the sleep only the remaining — the overshoot's absorption — the cadence's
+anchor to the wall's clock) (AC3): the seed's error's class — the chained pattern's
+drift. The lesson's shape: background threads + atomic flags = real-time illusion, done
+right.
+
+FIX (took 3 days)
+The absolute-time's scheduling (the shipped discipline): the deadline's computation (the
+wake's target — the period's minus the elapsed — the sleep only the remaining — the
+overshoot absorbed) (AC3). The re-test: the cadences' constancy — the measured rates at
+the commanded values, the drift's run preserved as the reference.
+
+---
+
+E0061 | v8.7 | SMALL | Found Day 226 | Fixed in 3 days | the integration's builds
+File : scheduler.py
+Error : the blocking's read — the main loop's stall's return
+Terminal : the integration's builds
+
+WHAT HAPPENED
+Day 226, the integration's builds: the main loop's *reads blocked* — the direct access's
+pattern (the shared reads without the flags — the locking's contention — the thread's
+waits) stalling the control's loop (the loop's period's spikes — the 100 Hz's breaks —
+the control's jitter), the stall's return despite the background's threads.
+
+WHY IT HAPPENED
+The blocking's pattern: the locks' and the waits' use — the contention — the control's
+stall — the architecture's promise broken.
+
+FIX (took 3 days)
+The atomic flags' contract (the shipped sharing): the latest values' slots (the thread's
+writes, the main's instant reads — the atomicity — the small payloads), the freshness's
+flags (AC4). The re-test: the loop's period's stability — the stall's absence, the
+blocking's counter-case preserved.
+
+---
+
+E0062 | v8.7 | SMALL | Found Day 227 | Fixed in 2 days | the control's runs
+File : scheduler.py
+Error : the flags' staleness — the freshness's marker's absence
+Terminal : the control's runs
+
+WHAT HAPPENED
+Day 227, the control's runs: the reads' *staleness undetected* — the latest sample's
+slot without the freshness's marker (the old data's use — the control's update at the
+stale value — the flag's absence — the bounded staleness's boundary unmarked), the
+emergency's path (the wall's proximity's reaction) using the stale sample — the
+reaction's delay — the safety's margin's erosion.
+
+WHY IT HAPPENED
+The marker's absence: the slot's blind reads — the stale data's use — the emergency's
+reaction's delay.
+
+FIX (took 2 days)
+The freshness's flags (the shipped sharing): the new data's marker per slot (the
+thread's set — the main's check and reset — the staleness's signal) (AC4). The re-test:
+the stale sample's detection — the emergency's freshness — the reaction's immediacy, the
+blindness's counter-case preserved.
+
+---
+
+E0063 | v8.7 | SMALL | Found Day 227 | Fixed in 2 days | the endurance's runs
+File : scheduler.py
+Error : the thread's error's silence — the crashed loop's quiet
+Terminal : the endurance's runs
+
+WHAT HAPPENED
+Day 227, the endurance's runs: the thread's *error went silent* — the background's fn's
+exception (the I2C's glitch — the camera's error) crashing the thread (the loop's death
+— the cadence's halt — the latest sample's freezing — the main loop reading the frozen
+value — the stale's silent use), the diagnosis delayed by the silence (the telemetry's
+gap — the sensor's data's freeze unnoticed).
+
+WHY IT HAPPENED
+The error's silence: the unhandled exception — the thread's quiet death — the frozen
+values — the stale's silent use.
+
+FIX (took 2 days)
+The error's containment (the shipped loop): the fn's exception's catch (the log — the
+halt's marker — the freshness's flag's failure's signal) (AC4). The re-test: the I2C's
+glitch's injection — the loop's survival and the signal — the silence's end, the quiet's
+counter-case preserved.
+
+---
+
+E0064 | v8.7 | SMALL | Found Day 228 | Fixed in 1 day | the mission's ends
+File : scheduler.py
+Error : the shutdown's mess — the daemon's teardown's race
+Terminal : the mission's ends
+
+WHAT HAPPENED
+Day 228, the mission's ends: the shutdown's *teardown raced* — the stop's signaling (the
+threads' halt) without the waits (the loop's mid-cycle — the sample's partial write —
+the teardown's errors — the exit's mess — the crash at the mission's end), the runs'
+finishes marred.
+
+WHY IT HAPPENED
+The teardown's race: the halt without the joins — the mid-cycle's death — the crash at
+the end.
+
+FIX (took 1 day)
+The ordered shutdown (the shipped lifecycle): the stop's signaling, the join's waits,
+the threads' completion (AC5). The re-test: the repeated start/stops — the clean exits,
+the race's counter-case preserved.
+
+---
+
+## v8.8 - HEALTH MONITOR HEARTBEATS (Day 229-231)
+
+TOTAL ERROR : 5
+SMALL : 4
+BIG : 1
+
+E0065 | v8.8 | BIG | Found Day 229 | Fixed in 3 days | the first builds
+File : layer0_system_manager.py
+Error : the false positives — the transient's flips
+Terminal : the first builds
+
+WHAT HAPPENED
+Day 229, the first builds: the transient glitches *turned the LEDs off* — the LEDs'
+flickering (the single miss's judgment — the heartbeat's jitter — the sensor's glitch —
+the I2C's hiccup — the camera's pause — the LED's flip — the fault's false declaration),
+the health's noise (the monitor's truth buried under the transients — the diagnosis's
+confusion — the referee's wrong read).
+
+WHY IT HAPPENED
+The single miss's judgment: the immediate flip at the transient — the false positive —
+the LED's flicker — the health's noise.
+
+INVESTIGATION (only for BIG errors)
+The single miss's judgment was the diagnosis: the heartbeat's check (the one missed
+heartbeat — the immediate fault) cannot distinguish the transient (the glitch's pause —
+the brief silence) from the fault (the sustained loss — the death), and the fix is the
+tolerance's discipline — the 3 consecutive misses before the declaration (the misses'
+accumulation — the transient's window — the fault's confirmation) (AC2): the seed's
+error's class — the judgment's lack of the memory. The lesson's shape: health monitors
+need hysteresis.
+
+FIX (took 3 days)
+The hysteresis (the shipped discipline): the miss's counter per subsystem — the 3
+consecutive misses before the fault — the reset at the heartbeats' return — the
+transient's absorption (AC2). The re-test: the glitches' injection — the LEDs' steady
+states — the faults' confirmation, the flicker's run preserved as the reference.
+
+---
+
+E0066 | v8.8 | SMALL | Found Day 229 | Fixed in 3 days | race
+File : layer0_system_manager.py
+Error : the LED's mapping's collision — the GPIO's conflict
+Terminal : race
+
+WHAT HAPPENED
+Day 229, the wiring's tests: the LED's *mapping collided* — the GPIO's assignment (the
+26's dual use — the LED5's race's blink sharing the pin with another function — the
+race's LED and the function's interference — the LED's wrong states — the blink's and
+the function's fighting), the chassis's story corrupted.
+
+WHY IT HAPPENED
+The pin's collision: the shared GPIO — the functions' fighting — the LED's wrong states
+— the story's corruption.
+
+FIX (took 3 days)
+The exclusivity's audit (the shipped mapping): the five GPIOs' exclusive assignments
+(the conflict's absence — the chassis's legend's match) (AC1). The re-test: the LEDs'
+states at the flags' changes — the mapping's truth, the collision's counter-case
+preserved.
+
+---
+
+E0067 | v8.8 | SMALL | Found Day 230 | Fixed in 2 days | the integration's runs
+File : layer0_system_manager.py
+Error : the heartbeat's silence — the report's channel's loss
+Terminal : the integration's runs
+
+WHAT HAPPENED
+Day 230, the integration's runs: the heartbeat's *reports went silent* — the report's
+channel's fault (the shared flag's write lost — the manager's read failing — the
+heartbeat's absence — the subsystem healthy but the monitor deaf), the faults' false
+declarations (the healthy subsystems' LEDs off — the monitor's blindness), the story's
+wrongness.
+
+WHY IT HAPPENED
+The channel's loss: the report's silence — the healthy's false fault — the monitor's
+blindness.
+
+FIX (took 2 days)
+The channel's verification (the shipped collection): the flags' sharing's integrity (the
+subsystem's write delivered — the manager's read's truth) (AC3). The re-test: the
+reports' delivery — the false faults' absence, the silence's counter-case preserved.
+
+---
+
+E0068 | v8.8 | SMALL | Found Day 230 | Fixed in 2 days | the recovery's tests
+File : layer0_system_manager.py
+Error : the recovery's deadlock — the stuck fault's state
+Terminal : the recovery's tests
+
+WHAT HAPPENED
+Day 230, the recovery's tests: the fault's *state stuck* — the recovery's path's miss
+(the heartbeats' return without the counter's reset — the fault's persistence — the
+LED's off despite the subsystem's recovery — the story's staleness), the diagnosis's
+confusion (the recovered subsystem shown as faulted — the team's wrong hunt).
+
+WHY IT HAPPENED
+The recovery's miss: the counter's reset absent — the fault's persistence — the story's
+staleness.
+
+FIX (took 2 days)
+The recovery's path (the shipped hysteresis): the heartbeats' return — the counter's
+reset — the LED's restoration (AC2). The re-test: the glitch's then the recovery — the
+LED's on — the story's renewal, the deadlock's counter-case preserved.
+
+---
+
+E0069 | v8.8 | SMALL | Found Day 231 | Fixed in 1 day | race
+File : layer0_system_manager.py
+Error : the race's blink's cadence — the 2 Hz's jitter
+Terminal : race
+
+WHAT HAPPENED
+Day 231, the mission's runs: the race's *blink's cadence jittered* — the LED5's 2 Hz
+(the mission's pulse) uneven (the manager's watch's loop's jitter — the other LEDs'
+updates' interference — the blink's irregularity — the race's aliveness's read
+confused), the mission's pulse's truth degraded.
+
+WHY IT HAPPENED
+The blink's jitter: the watch's loop's interference — the irregular pulse — the
+aliveness's read's confusion.
+
+FIX (took 1 day)
+The blink's discipline (the shipped cadence): the absolute-time's scheduling for the
+race's blink (the 2 Hz's deadline — the jitter's bound — the isolation) (AC4). The
+re-test: the measured regularity — the pulse's truth, the jitter's counter-case
+preserved.
+
+---
+
+## v8.9 - RATE-LIMITED ERROR LOGGER (Day 232-234)
+
+TOTAL ERROR : 5
+SMALL : 4
+BIG : 1
+
+E0070 | v8.9 | BIG | Found Day 233 | Fixed in 2 days | the integration's runs
+File : esp32_controller.ino, serial_protocol.py
+Error : the rate-limiting's drop — the critical's loss
+Terminal : the integration's runs
+
+WHAT HAPPENED
+Day 233, the integration's runs: the rate-limiting *dropped the important errors* — the
+critical's loss (the emergency's condition's log suppressed by the storm of the warnings
+— the counter's exhaust — the diagnosis's blindness at the worst moment), the log's
+false quiet (the cap's silence — the important error's absence — the team's confidence
+in the clean log — the fault's hidden).
+
+WHY IT HAPPENED
+The uniform cap: the severity's distinction absent — the critical's suppression — the
+diagnosis's blindness.
+
+INVESTIGATION (only for BIG errors)
+The severity's absence was the diagnosis: the naive cap (the repeated errors'
+suppression without the severity's distinction — the fire alarm's silence at the fire),
+and the fix is the severity's discipline — the critical's always (the suppression's
+immunity — the alarm's guarantee), the warnings' rate-limited (the 1 per 2 s — the
+storm's taming) (AC4): the seed's error's class — the uniform cap's blindness. The
+lesson's shape: logging is a fire alarm system — not everything is equally loud.
+
+FIX (took 2 days)
+The severity's levels (the shipped logger): the critical errors always log (the alarm's
+guarantee), the warnings rate-limited to the 1 per 2 s (AC4). The re-test: the storm's
+injection with the critical's presence — the critical's log at the cap — the signal's
+truth, the drop's run preserved as the reference.
+
+---
+
+E0071 | v8.9 | SMALL | Found Day 232 | Fixed in 3 days | the protocol's first tests
+File : esp32_controller.ino, serial_protocol.py
+Error : the CRC8's mismatch — the poly's confusion
+Terminal : the protocol's first tests
+
+WHAT HAPPENED
+Day 232, the protocol's first tests: the CRC8's *checksums never matched* — the
+encoder's and the decoder's math (the polynomial's variants — the 0x07's interpretation
+— the init's and the final's XOR's differences — the checksum's mismatch — every
+packet's rejection), the link's total silence.
+
+WHY IT HAPPENED
+The parameters' divergence: the encoder's and the decoder's CRC8 variants differ — the
+checksum's failure — the link's silence.
+
+FIX (took 3 days)
+The variant's unification (the shipped protocol): the shared CRC8 constants (the poly
+0x07 — the init's and the final's values — the encoder's and the decoder's identity)
+(AC1). The re-test: the test's vector's match — the packets' acceptance, the mismatch's
+counter-case preserved.
+
+---
+
+E0072 | v8.9 | SMALL | Found Day 233 | Fixed in 2 days | the drive's runs
+File : esp32_controller.ino, serial_protocol.py
+Error : the watchdog's false's trip — the timing's mismatch
+Terminal : the drive's runs
+
+WHAT HAPPENED
+Day 233, the drive's runs: the watchdog *tripped falsely* — the 200 ms's timeout vs the
+command's cadence (the normal's gap — the scheduler's jitter (v8.7) — the command's
+delay beyond the window — the failsafe's false's entry — the motors' unexpected's stops
+at the healthy link), the runs' interruptions.
+
+WHY IT HAPPENED
+The window's tightness: the cadence's edge — the jitter's trip — the false's stop.
+
+FIX (took 2 days)
+The window's calibration (the shipped watchdog): the 200 ms's margin vs the command's
+cadence and the scheduler's jitter (the normal's headroom — the loss's detection) (AC2).
+The re-test: the healthy's jitter without the trips, the loss's safe stop — the
+failsafe's truth, the false's trip's counter-case preserved.
+
+---
+
+E0073 | v8.9 | SMALL | Found Day 233 | Fixed in 2 days | the lossy's tests
+File : esp32_controller.ino, serial_protocol.py
+Error : the sequence's gap — the stale's acceptance
+Terminal : the lossy's tests
+
+WHAT HAPPENED
+Day 233, the lossy's tests: the sequence's *gap's handling accepted the stale* — the
+packets' loss (the radio's drop — the sequence's gap) without the sequence's check (the
+stale's or the out-of-order's acceptance — the old command's execution — the drive's
+wrong state at the new's expectation), the control's corruption.
+
+WHY IT HAPPENED
+The sequence's check's absence: the out-of-order's acceptance — the old command's
+execution — the control's corruption.
+
+FIX (took 2 days)
+The sequence's verification (the shipped decoder): the packet's ordinal's check — the
+expected's match — the stale's and the duplication's rejection (AC1). The re-test: the
+gaps' and the reorder's injections — the rejections — the commands' truth, the gap's
+counter-case preserved.
+
+---
+
+E0074 | v8.9 | SMALL | Found Day 234 | Fixed in 1 day | the endurance's runs
+File : esp32_controller.ino, serial_protocol.py
+Error : the failsafe's recovery's hang — the stuck's safe state
+Terminal : the endurance's runs
+
+WHAT HAPPENED
+Day 234, the endurance's runs: the failsafe's *recovery hung* — the link's return
+without the watchdog's reset's logic (the safe state's persistence — the packets' resume
+ignored — the motors' stuck's stop — the mission's stall at the healthy's link), the
+runs' halts.
+
+WHY IT HAPPENED
+The recovery's absence: the safe state's persistence — the resume's ignore — the
+mission's stall.
+
+FIX (took 1 day)
+The recovery's path (the shipped failsafe): the packets' resume — the watchdog's reset —
+the safe state's exit (AC2). The re-test: the loss then the return — the motors'
+restoration — the failsafe's completeness, the hang's counter-case preserved.
+
+---
+
+## THE ENGINEERING DOCUMENTATION
+
+The errors this phase records that come from ENGINEERING_
+DOCUMENTATION.md and ENGINEERING_PARAMETER_JUSTIFICATION.md,
+not from a CHANGE.md chapter. The docs do not log days, so
+Found Day is n/a and FIX carries no day count.
+
+TOTAL ERROR : 2
+SMALL : 1
+BIG : 1
+
+E0075 | v8 | BIG | Found Day n/a | Fixed in n/a | the engineering documentation
+File : layers/layer2_time_sync.py
+Error : layer2_time_sync would not import — the IndentationError (FA-3)
+Terminal : the engineering documentation
+
+WHAT HAPPENED
+Module-level crash at startup on get_history(): layer2_time_sync would not import.
+
+WHY IT HAPPENED
+A body-less indented block under the function definition — a truncation artifact during
+refactoring.
+
+FIX
+Corrected the indentation; a py_compile gate was added to CI — all 16 Python files now
+pass python -m py_compile as a pre-commit check.
+
+---
+
+E0076 | v8 | SMALL | Found Day n/a | Fixed in n/a | the engineering documentation
+File : layers/layer1_sensors.py, main.py
+Error : the blocking I2C read rejected — the 100 Hz impossibility
+Terminal : the engineering documentation
+
+WHAT HAPPENED
+Blocking I2C reads in the main loop were considered and rejected: with a 68 ms sensor
+cycle and a 10 ms control frame, a blocking read makes 100 Hz physically impossible.
+
+WHY IT HAPPENED
+The control loop can never block on I2C (constraint C-2).
+
+FIX
+layer1_sensors.py runs a dedicated polling thread writing to a lock-protected snapshot;
+the main loop reads the latest snapshot with zero blocking, and status flags report
+staleness.
+
+---
