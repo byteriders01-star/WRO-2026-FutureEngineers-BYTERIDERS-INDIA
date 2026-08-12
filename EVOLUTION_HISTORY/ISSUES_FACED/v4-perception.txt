@@ -1,0 +1,2444 @@
+PHASE 4 - PERCEPTION - ERROR CATALOG
+
+ERROR TOTAL : 72
+SMALL : 62
+BIG : 10
+TOTAL ERROR : 615
+PERCENTAGE : 11.71%
+
+------------------------------------------------------------
+HOW TO READ THIS FILE
+1. Every error is real. It was parsed from the CHANGE.md history chapter of
+   the version that hit it (other/history/vX.Y/CHANGE.md, section 9). Nothing
+   here was invented to fill a quota.
+2. Errors are grouped by version, in the order the versions happened.
+3. E-numbers restart at E0001 for each phase file.
+4. SMALL errors are one-line fixes; BIG errors needed an investigation.
+5. 'Found Day N' is the day the error was first observed, as recorded in the
+   chapter. 'Fixed in N days' is the time between that day and the last
+   recorded day of the version.
+6. The FIX section is the fix exactly as the chapter documented it.
+------------------------------------------------------------
+ANATOMY OF ONE ERROR ENTRY
+
+E0001 | v4.0 | SMALL or BIG | Found Day N | Fixed in N days | Terminal
+File : the file or files involved, as named in the chapter
+Error : the error text, quoted from the chapter
+Terminal : where the error was observed, from the chapter
+
+WHAT HAPPENED
+What we saw - the symptom, from the chapter's Symptom section.
+
+WHY IT HAPPENED
+The root cause, from the chapter's Root cause section.
+
+INVESTIGATION (only for BIG errors)
+How we found it - the chapter's Investigation section.
+
+FIX (took N days)
+The fix, from the chapter's Fix section.
+
+------------------------------------------------------------
+THE ERROR CATALOG
+
+## v4.0 - THE CANONICAL WALL PICTURE: GIVING A SENSOR'S BLIND SPOT A DEFINED MEANING (Day 88-89)
+
+TOTAL ERROR : 6
+SMALL : 5
+BIG : 1
+
+E0001 | v4.0 | BIG | Found Day 89 | Fixed in 1 day | afternoon)
+File : wall_detect.py
+Error : -1.0
+Terminal : afternoon)
+
+WHAT HAPPENED
+During the first wall-following test on the full track loop (Day 89 afternoon), the
+robot tracked the left wall cleanly down a straight — left side readings sat at 280-310
+mm, jittering ±15 mm as expected from the VL53L0X — and then, at the first 90° corner,
+the left reading collapsed. Not to a small number: to the reader's `-1.0` failure
+sentinel and to the v3.5 layer's *stale frozen default* (left data stayed at whatever it
+last held, because v3.5 only writes on `if lo and l > 0`). The console trace showed a
+sequence like: `298, 305, 291, 287, -1.0, 287, 287, 287, -1.0, -1.0, ...`. The wall had,
+from the software's point of view, *disappeared*. The wall-following logic — still
+steering on the straight's assumption — had no left wall to correct against, and the
+robot drifted into the corner wall until the front sensor's reading began to drop and
+the emergency stop fired. Two separate code paths (a stale frozen value and a failure
+sentinel) were both standing in for "we are right next to a wall," and neither one
+*said* that.
+
+WHY IT HAPPENED
+Three independent causes stacked, and only the first is physical: 1. **Physical — the
+blind zone.** The VL53L0X cannot measure below ~30 mm (internal emitter-receiver
+crosstalk swamps the return pulse). Below the cliff, the sensor fails or returns
+garbage. This is a property of the module, not a software bug. 2. **Contractual — no
+defined meaning for "too close."** The v3.4/v3.5 layers had no concept of "too close."
+Their failure semantics were `-1.0` (reader) and *freeze-last-value* (manager). Both
+representations are *silent*: they carry no information about what the wall is doing. A
+consumer saw `-1.0` or a stale 287 mm and had exactly two choices — treat it as "no
+wall" (wrong, dangerous) or "wall at 287 mm" (wrong, dangerous). There was no value
+whose *meaning* was "the wall is closer than we can measure." 3. **Logical — the
+consumer could not act.** Even a consumer that *knew* the blind zone existed had no
+programmatic signal for it, because the layer boundary never defined one. The
+information that the robot was in contact proximity existed only as the *absence* of a
+measurement, and absence is not a signal.
+
+INVESTIGATION (only for BIG errors)
+We had a habit by then: stop guessing, start logging. We instrumented the corner test to
+log raw sensor values plus the chassis's commanded steering at 100 Hz, and we re-ran the
+corner at 0.8 m/s and at 1.6 m/s. The 1.6 m/s run was the revealer. The trace showed the
+left distance sequence `312 → 254 → 198 → 141 → 89 → 47 → 31 → 26 → -1.0 → -1.0 → ...` —
+the wall distance fell monotonically to roughly 30 mm, and *at that exact point* the
+readings switched to failure. That monotonic collapse to a cliff at ~30 mm is the
+fingerprint of the blind zone: the sensor was working perfectly, reading the wall
+getting closer and closer, until the wall entered the region below its minimum
+measurable range — and there the measurement became physically impossible, so the v3.4
+reader returned `-1.0`. We confirmed by holding a cardboard target at measured distances
+50, 40, 35, 30, 25, 20, 15, 10 mm in front of a bench-mounted VL53L0X: readings were
+stable at 50-35 mm, erratic at 30 mm, and failed/erratic below ~28 mm. The datasheet's
+~30 mm minimum measured true on our own board. The wall had not vanished; it had crossed
+a line the sensor cannot see past.
+
+FIX (took 1 day)
+The change, as the changelog records, is a contract change in the new canonical layer.
+`detect_walls` maps any raw value below 30 mm to `0.0` — a *defined* value whose
+documented meaning is "too close to measure" — and additionally emits `wall_contact`
+computed from raw values, so higher layers have a one-call "we are touching a wall"
+gate. The semantics are inherited by every consumer: `0.0` is never "no wall," never
+"free space," never a measurement to average; it is the physical fact "we are inside the
+sensor's last 30 mm before contact." Higher layers (v4.1 free space, v4.2 corners, the
+emergency path) treat `0.0` as "too close" and react accordingly. The stale-frozen-value
+path of v3.5 is neutralised at the boundary: even a stale 287 mm default still maps to a
+*valid* 287 mm wall if the key existed — but the *missing* key case now also degrades to
+`0.0` (fail-closed), and the v3.9 health flag (`left_ok`) is the authority that tells
+the consumer whether the `0.0` is a wall or a dead sensor.
+
+---
+
+E0002 | v4.0 | SMALL | Found Day 89 | Fixed in 1 day | field
+File : wall_detect.py
+Error : 30.0
+Terminal : field
+
+WHAT HAPPENED
+During verification (section 8), the truth-table test ran a raw value of exactly `30.0`
+mm through `detect_walls`. The result was internally inconsistent: `left_wall_mm` came
+out `0.0` (because the field mapping uses strict `left > 30`, and `30.0 > 30` is
+`False`), while `wall_contact` came out `False` (because the gate uses strict `left <
+30`). A wall exactly at the threshold was simultaneously "too close to measure" in one
+field and "not in contact" in another.
+
+WHY IT HAPPENED
+The field mapping was written with the intention "the blind zone owns the boundary"
+(section 5.1), while the gate was written as the literal translation of "below 30 mm is
+contact": `value < threshold`. The constant is shared; the *comparison operator* is not.
+This is the classic off-by-inclusion bug hiding in a threshold, invisible until exactly
+the boundary value is exercised.
+
+FIX (took 1 day)
+We made the *semantics consistent in the dangerous direction*: both predicates treat
+`30.0` as inside the zone. The gate becomes `left <= 30 or right <= 30 or front <= 30`
+and the fields stay `left > 30 else 0.0`. (Equivalently both could use strict `<`, but
+the boundary-ownership decision of 5.1 — the conservative side owns the boundary — was
+made first.) The physical difference between 29.99 and 30.00 mm is irrelevant at 18
+mm/tick; what matters is that the *two representations of the same fact agree*.
+
+---
+
+E0003 | v4.0 | SMALL | Found Day 89 | Fixed in 1 day | a test where the left sensor
+File : wall_detect.py
+Error : left_wall_mm == 0.0
+Terminal : a test where the left sensor
+
+WHAT HAPPENED
+During a test where the left sensor was deliberately disabled (cable pulled), the
+canonical output showed `left_wall_mm == 0.0` and `wall_contact == True`. A
+wall-following test that had not yet been wired to the v3.9 health gate would have
+reacted to a *dead sensor* as a *wall in contact* — the wrong emergency trigger.
+
+WHY IT HAPPENED
+By design, we chose the fail-closed direction: a missing sensor reads as "too close,"
+because on the track *assuming "too close" when unsure is the safe error*. The cost is a
+false "contact" when a sensor dies. This is not a bug in `detect_walls` — it is the
+documented price of R3 (missing keys must not crash) plus the fail-closed default. The
+bug would have been *consumers* using `wall_contact` without the health gate.
+
+FIX (took 1 day)
+No change to `detect_walls` (the fail-closed direction stands). The 5): every consumer
+gates on the v3.9 health flags before acting on a `0.0` or on `wall_contact`. The v4.1
+free-space classifier and the v4.2 corner logic both implement this as their first line.
+We also added a log-level note in the integration layer: when `wall_contact` is `True`
+and any health flag is `False`, log at `warning` "wall_contact true but sensor unhealthy
+— check flags" so the ambiguity is never silent.
+
+---
+
+E0004 | v4.0 | SMALL | Found Day 89 | Fixed in 1 day | bench
+File : wall_detect.py
+Error : >= 30
+Terminal : bench
+
+WHAT HAPPENED
+During Day 89 morning development, the first implementation was written as `left if left
+>= 30 else 0.0`. On the bench, a wall held at 31 mm read correctly, but the map was *one
+millimetre generous*: it reported a valid distance at 30.5 mm where the sensor is
+already past its reliable cliff (measured erratic at 30 mm, section 7.1). A
+wall-following controller reading 30.5 mm as "measured" would steer to *keep* that
+distance, inviting the blind zone.
+
+WHY IT HAPPENED
+The operator was "generous" in the direction of reporting a value, without asking
+whether that value is *trustworthy*: it presents an erratic, unreliable region as a
+stable measurement.
+
+FIX (took 1 day)
+Strict `>` (as shipped), so only values strictly above the reliable floor are reported
+as measurements; everything at or below the floor is `0.0`. The conservative side owns
+the boundary, consistently with 7.2.
+
+---
+
+E0005 | v4.0 | SMALL | Found Day 88 | Fixed in 2 days | the design review
+File : wall_detect.py
+Error : design rejected: Alternative A — Pass the raw values through unchanged
+Terminal : the design review
+
+WHAT HAPPENED
+Keep emitting `left_mm`, `right_mm`, `front_mm` as the v3.5 layer did, with the `-1.0`
+sentinel, and let each consumer decide what "small" means. Analysis: this is the status
+quo, and it is the cousin of the v3.8 silent-failure incident: no single owner of the
+interpretation, so it gets made independently in every consumer, three different ways.
+The changelog's own lesson ("design the handoff to the next layer") is a direct
+rejection of A: A *has no handoff*, it just dumps a float. Rejected on the core mission.
+
+WHY IT HAPPENED
+Analysis: this is the status quo, and it is the cousin of the v3.8 silent-failure
+incident: no single owner of the interpretation, so it gets made independently in every
+consumer, three different ways. The changelog's own lesson ("design the handoff to the
+next layer") is a direct rejection of A: A *has no handoff*, it just dumps a float.
+Rejected on the core mission.
+
+FIX (took 2 days)
+the chosen design, per the chapter's decision section
+
+---
+
+E0006 | v4.0 | SMALL | Found Day 88 | Fixed in 2 days | the design review
+File : wall_detect.py
+Error : design rejected: Alternative B — Saturate: clamp raw values to a floor of 30 mm
+Terminal : the design review
+
+WHAT HAPPENED
+When the sensor reads 12 mm, report 30 mm ("the wall is at least 30 mm away"). Analysis:
+this *fabricates a plausible distance*. A wall-following controller would steer to
+maintain, say, 300 mm; if the real gap is 12 mm and we report 30 mm, the controller
+keeps pushing toward a wall that is already in contact. Saturation removes the
+*detectability* of the contact event — the controller can never see "too close," only
+"at the floor." It also reintroduces the exact ambiguity v3.9 fought: a reading pinned
+at the floor is indistinguishable from a sensor reporting a true 30 mm wall. Rejected:
+turns a discrete, detectable event into a continuous, undetectable lie. **Alternative C
+— Negative-encode: report the raw `-1.0` sentinel for blind zone and let higher layers
+treat negatives as "too close."** Analysis: the sentinel already exists in the v3.4
+readers (`return mm if mm and mm > 0 else -1.0`), so this is cheap. But it conflates
+"sensor failed" (`-1.0` from the reader) with "sensor measured a wall in the blind zone"
+(also potentially `-1.0`, since the blind zone produces read failures). Two physically
+different situations, one signal. The v3.9 health layer already needs to distinguish
+them, and C makes it impossible at the wall layer. Rejected on the value-partition
+requirement: one meaning per value. **Alternative D — Estimate sub-30 mm distance by
+fusing last-good reading with IMU yaw.** When the raw value drops below 30 mm, compute a
+continuation of the wall distance using the last trustworthy reading plus the integrated
+yaw from the MPU6050. Analysis: this is seductive — it would give a *continuous* wall
+distance through the blind zone, and wall-following controllers love continuity. But it
+is exactly the "looks alive but isn't" class of estimate that v3.9's lesson 9 forbids: a
+*guess dressed as a measurement*, carrying yaw-integration drift (the MPU6050
+magnetometer is disabled, so yaw is pure gyro integration) and violating R4 (it needs
+state and per-call work). It also moves a *fusion* problem into a *mapping* problem —
+pose-based geometry belongs in v5.x's UKF, not in a nine-line wall mapper. Rejected:
+correct technology, wrong layer, silent lie. **Alternative E — Wide threshold: treat
+anything under, say, 100 mm as contact.** Analysis: this is tempting for wall-following
+because it gives the controller a bigger "safe" buffer. But the threshold's job is to
+describe a *physical event* — "we can no longer measure" — not to encode a control
+policy. If we use 100 mm, we lose 70 mm of real, measurable, *useful* wall distance: a
+wall-following controller at a 100 mm setpoint could never see its own setpoint. Policy
+thresholds belong to the controller; the *detection* threshold belongs to the sensor.
+Rejected on the separation-of-concerns principle. **Alternative F — The chosen design:
+map blind-zone to `0.0` + emit a `wall_contact` gate from raw values.** Analysis: `0.0`
+is a *defined, documented sentinel* meaning "too close to measure," distinct from `-1.0`
+("failed read") and from a positive value ("measured wall distance"). `wall_contact`
+gives consumers a one-call gate. The cost: consumers must *know* that `0.0` is special
+(hence the documented contract, section 5) and must gate on health before trusting it.
+This is the only option that satisfies C1-C6 simultaneously.
+
+WHY IT HAPPENED
+Rejected: turns a discrete, detectable event into a continuous, undetectable lie. But it
+conflates "sensor failed" (`-1.0` from the reader) with "sensor measured a wall in the
+blind zone" (also potentially `-1.0`, since the blind zone produces read failures). The
+v3.9 health layer already needs to distinguish them, and C makes it impossible at the
+wall layer. Rejected on the value-partition requirement: one meaning per value. But it
+is exactly the "looks alive but isn't" class of estimate that v3.9's lesson 9 forbids: a
+*guess dressed as a measurement*, carrying yaw-integration drift (the MPU6050
+magnetometer is disabled, so yaw is pure gyro integration) and violating R4 (it needs
+state and per-call work). Rejected: correct technology, wrong layer, silent lie.
+Rejected on the separation-of-concerns principle. **Alternative F — The chosen design:
+map blind-zone to `0.0` + emit a `wall_contact` gate from raw values.** Analysis: `0.0`
+is a *defined, documented sentinel* meaning "too close to measure," distinct from `-1.0`
+("failed read") and from a positive value ("measured wall distance").
+
+FIX (took 2 days)
+the chosen design, per the chapter's decision section
+
+---
+
+## v4.1 - V4.1 (Day 91)
+
+TOTAL ERROR : 10
+SMALL : 9
+BIG : 1
+
+E0007 | v4.1 | BIG | Found Day 91 | Fixed in 1 day | pillar testing on day 92
+File : free_space.py
+Error : OCCUPIED_FAR
+Terminal : pillar testing on day 92
+
+WHAT HAPPENED
+During pillar testing on day 92, with a red pillar placed in the corridor and track
+lighting overhead, the robot repeatedly returned `OCCUPIED_FAR` (and sometimes, through
+the early OR-fusion prototype, `BLOCKED_NEAR`) when the *pillar's shadow* was in view —
+with the pillar itself present, absent, or occluded. The verdict fired on the dark gray
+region cast on the white floor, roughly pillar-shaped and pillar-sized. Over a 20-minute
+session we counted 14 false verdicts, every one correlating with the shadow position and
+none with the actual pillar.
+
+WHY IT HAPPENED
+A shadow is not "a dark version of the object." A shadow is the region where direct
+light is blocked; the light that remains is ambient and scattered, and scattered light
+is spectrally flat — it illuminates all wavelengths roughly equally, so the surface
+reflects a *gray*, and gray has near-zero saturation regardless of how bright or dark it
+is. The pillar, by contrast, is a *chromatic* object: it absorbs most wavelengths and
+reflects red, and the reflected red light stays saturated whether the total illumination
+is high or low. Brightness (V) encodes "how much light," which changes dramatically
+between direct and shadowed regions; saturation (S) encodes "how *colored* the light
+is," which is preserved by color objects and destroyed by shadows. We had chosen a
+feature maximally sensitive to the exact phenomenon (lighting change) we needed to be
+immune to. The shadow error was not a bug in the threshold; it was a bug in the *feature
+selection*, and no amount of threshold tuning could have fixed it — which is why H1–H3
+all led nowhere.
+
+INVESTIGATION (only for BIG errors)
+We logged pixel statistics from the actual frames — the only way to resolve a vision bug
+is to stop reasoning about pixels and *look at them*. Sampling the shadow region of
+interest: hue scattered across the whole wheel (achromatic pixels have meaningless hue),
+saturation S ≈ 0.05–0.15, value V ≈ 40–60. Sampling the pillar region: hue in the red
+bands (0–10 or 170–180), S ≈ 0.60–0.95, V ≈ 150–220 under the same light. The two
+classes of pixels are *cleanly separated* in the S–V plane: they overlap in V (a shadow
+can be as "bright" as a dim-lit pillar edge) but they are separated by more than 4× in
+S. And the earlier code had been thresholding on V — treating "dark object of
+pillar-like size" as an obstacle. A shadow is exactly that: dark and pillar-shaped. The
+feature chosen guaranteed the failure.
+
+FIX (took 1 day)
+The exact change the changelog records: switch the vision test from brightness to color
+saturation. The `mask_confidence` input to `free_space()` became the normalized fraction
+of ROI pixels passing the *saturation* gate (S high and hue in the red bands), rather
+than a brightness gate. After the change the shadow region scores ~0.05–0.15 against the
+0.3 threshold — a 2–6× separation from the trigger point — while the pillar scores
+0.5–0.95. The false verdicts dropped from 14 in 20 minutes to 0 across the entire
+50-trial verification session. The code change itself was one line in the mask
+construction; the *feature* change was the entire lesson.
+
+---
+
+E0008 | v4.1 | SMALL | Found Day 91 | Fixed in 1 day | the approach to a wall at
+File : free_space.py
+Error : FREE → BLOCKED_NEAR → FREE → BLOCKED_NEAR
+Terminal : the approach to a wall at
+
+WHAT HAPPENED
+On the approach to a wall at ~1.5 m/s, the log showed the verdict toggling `FREE →
+BLOCKED_NEAR → FREE → BLOCKED_NEAR` across several loop ticks as the ToF read 452, 448,
+453, 447 mm — a 1 mm jitter around the gate. Each crossing into `BLOCKED_NEAR` was
+*correct* (the robot was genuinely near), but the repeated re-arming of the emergency
+path was noisy and — more importantly — taught us that at the boundary the verdict
+flickers, and a flickering safety signal is a signal operators learn to distrust.
+
+WHY IT HAPPENED
+We had built a hard threshold with no state, and a hard threshold on a noisy signal at
+its own boundary produces toggling. The tension is real: hysteresis (the textbook fix)
+requires state, and our criterion 1 (pure, stateless, testable) required no state. Both
+cannot be true.
+
+FIX (took 1 day)
+We did **not** add hysteresis in v4.1. The reasoning is in section 3.6: the toggle into
+`BLOCKED_NEAR` is self-resolving, because `BLOCKED_NEAR` engages the brake, which
+reduces speed, which changes the geometry and pushes the robot out of the boundary band
+— the *actuator response* is the deadband. We verified this empirically: at the approach
+speed, the first crossing into `BLOCKED_NEAR` produced a brake, the speed dropped, and
+the subsequent readings were all solidly inside the gate. The flapping window lasted 2–3
+ticks (~20–30 ms), during which the verdict was conservative at least half the time. We
+logged the flapping as accepted.
+
+---
+
+E0009 | v4.1 | SMALL | Found Day 91 | Fixed in 1 day | integration with v4
+File : wall_detect.py
+Error : OCCUPIED_FAR
+Terminal : integration with v4
+
+WHAT HAPPENED
+During integration with v4.0's `wall_detect.py`, we briefly observed `OCCUPIED_FAR`
+verdicts with `mask_confidence` near zero — a verdict that should have been `FREE`. The
+log showed `front_mm = 0.0` for several ticks with nothing near the robot.
+
+WHY IT HAPPENED
+Two distinct physical events — "too close to measure" and "could not measure" — shared
+one encoded value. The v4.0 mapping optimized for the wall-following consumer (both
+should read as "no useful distance"), but the free-space verdict needs to know which one
+it is: a genuine blind-spot contact means the robot is *inside* the contact zone and the
+gate already fired on approach; a failed read means the health gate should be consulted.
+Collapsing them hid a health event behind a legitimate value.
+
+FIX (took 1 day)
+We did not change the v4.0 mapping (its consumer is wall following and its contract is
+fixed). We changed the *contract boundary*: the verdict's caller now passes the
+raw-reading-derived `front_mm` as the v4.0 mapping provides it, and the `> 0` guard does
+its conservative job — but the caller is required to check the v3.9 `front_ok` flag and
+route a failed ToF into the health path (LED2, log) rather than silently letting the
+verdict fall through to vision. In other words: the verdict stays pure and conservative;
+the *caller* carries the responsibility of distinguishing "0 = contact" from "0 = dead"
+using the health flag, which is exactly the information v3.9 provides and exactly why
+v3.9 was built before v4.1. The two versions complete each other: health answers "is the
+source alive?", the verdict answers "is the world free?", and neither can answer the
+other's question.
+
+---
+
+E0010 | v4.1 | SMALL | Found Day 91 | Fixed in 1 day | With a pillar at ~1
+File : red_pillar.py
+Error : FREE
+Terminal : With a pillar at ~1
+
+WHAT HAPPENED
+With a pillar at ~1.5 m and the robot slowly closing, the verdict alternated `FREE` and
+`OCCUPIED_FAR` at ~15 Hz — one switch per vision frame, roughly matching the frame
+cadence of the HSV pipeline.
+
+WHY IT HAPPENED
+We had set a hard threshold (0.3) on a quantity whose statistical width at the far range
+is comparable to the distance from the threshold. Unlike the 450 mm ToF gate (where
+noise is ±3 mm on a 450 mm gate), the vision confidence at ~0.3 is *at* its noise floor.
+The far gate was placed inside the distribution instead of at its edge.
+
+FIX (took 1 day)
+Two-part, both cheap. First, we re-derived the threshold from the measured far-range
+distribution: coverage for a pillar at 1.5–2.5 m sat in 0.35–0.9; shadows sat below
+0.15; we moved the gate to 0.3 — already where it is — but the real fix was *where we
+looked*. The flapping was not a threshold bug; it was the natural consequence of a
+marginal signal, and the correct response was to make the far verdict *self-stabilizing*
+the way the near gate is: `OCCUPIED_FAR` is not an emergency state, so a flicker between
+`FREE` and `OCCUPIED_FAR` is harmless — the robot is not braking either way, and the
+mission layer's future response (slow/steer) is a smooth function of the state, not a
+binary. We documented the flicker as benign and measured the flicker window in
+verification.
+
+---
+
+E0011 | v4.1 | SMALL | Found Day 91 | Fixed in 1 day | In the first integration run
+File : free_space.py
+Error : OCCUPIED_FAR
+Terminal : In the first integration run
+
+WHAT HAPPENED
+In the first integration run, the mission layer logged `OCCUPIED_FAR` continuously while
+approaching a pillar and did *nothing* with it. The verdict was correct; the behavior
+was unchanged. The state was information without an actor.
+
+WHY IT HAPPENED
+A three-state verdict whose third state no layer consumes is a latent inconsistency: the
+code is richer than the behavior, and robotics code that is richer than its behavior
+gets simplified incorrectly.
+
+FIX (took 1 day)
+We did not add a consumer in v4.1 (scope control held — v4.2 corner detection and v4.3
+pillar avoidance are the consumers, and they arrive in the next six days). Instead we
+wrote the state's contract into the caller documentation and the test suite: a test that
+asserts `OCCUPIED_FAR` is produced for (far, confident-vision) inputs, so the state
+cannot be removed without failing a test and cannot be ignored silently. The state is
+*pinned by test*, the cheapest way to keep a deliberate gap honest.
+
+---
+
+E0012 | v4.1 | SMALL | Found Day 91 | Fixed in 1 day | switching the mask to saturation
+File : free_space.py
+Error : mask_confidence
+Terminal : switching the mask to saturation
+
+WHAT HAPPENED
+After switching the mask to saturation, a *dimly lit* pillar (at the far edge of the
+corridor in a shadowed section of the track, where V was low) produced `mask_confidence`
+~ 0.2 — under the gate — and the verdict said FREE for a pillar that was genuinely
+there. We had made the test *too strict* for the dark end of the pillar's own
+distribution.
+
+WHY IT HAPPENED
+The shadow fix addressed the *feature* (S vs V), but the implementation also raised the
+*floor* (minimum S accepted in the mask). Raising the floor over-corrected: it was tuned
+against the shadow's S (0.05–0.15) by setting the floor above 0.15, but that floor also
+removed the dim pillar's low-S tail... which it did not — 0.35 is above 0.15. The real
+culprit: the confidence *gate* (0.3) interacts with the mask floor; the dim pillar's
+coverage dropped below 0.3 because the mask floor excluded some pixels, and the two
+thresholds compound.
+
+FIX (took 1 day)
+We separated the concerns cleanly: the mask floor (which pixels count as pillar color,
+set against the shadow distribution at S > 0.15) stays where it is; the confidence gate
+(how much of the ROI must be covered, 0.3) was verified against the *dim-pillar*
+distribution, and the dim pillar's coverage after the floor was measured at 0.38–0.52 —
+above the gate. The apparent failure was a test-setup artifact (the dim test used a
+pillar whose placement made coverage marginal), not a threshold bug. Re-running with the
+corrected placement: dim pillar → 0.40 confidence → OCCUPIED_FAR, consistently.
+
+---
+
+E0013 | v4.1 | SMALL | Found Day 91 | Fixed in 1 day | the design review
+File : free_space.py
+Error : design rejected: Alternative A — ToF-only free space
+Terminal : the design review
+
+WHAT HAPPENED
+`front_mm < 450 → BLOCKED, else FREE`, ignore vision entirely. Honest analysis: it is
+trivially fast (one comparison), trivially testable, and uses only the sensor with the
+highest trust per reading. But it is blind to the single-beam problem: a pillar 150 mm
+off-axis at 2 m is invisible, and the verdict says FREE while the pillar is dead ahead
+in the robot's swept corridor. It also cannot distinguish "clear" from "sensor can't see
+it" — the exact conflation v3.9 taught us to fear. Rejected on R3.
+
+WHY IT HAPPENED
+But it is blind to the single-beam problem: a pillar 150 mm off-axis at 2 m is
+invisible, and the verdict says FREE while the pillar is dead ahead in the robot's swept
+corridor. It also cannot distinguish "clear" from "sensor can't see it" — the exact
+conflation v3.9 taught us to fear. Rejected on R3.
+
+FIX (took 1 day)
+replaced by Alternative E — Prioritized three-state verdict (chosen)
+
+---
+
+E0014 | v4.1 | SMALL | Found Day 91 | Fixed in 1 day | the design review
+File : free_space.py
+Error : design rejected: Alternative B — Vision-only free space
+Terminal : the design review
+
+WHAT HAPPENED
+Run the HSV mask on the whole front ROI, threshold it, and declare blocked on coverage.
+Honest analysis: it has spatial coverage the ToF lacks, but it is 3× slower (30 fps),
+blind to non-colored objects (a white wall is invisible), blind in the near zone (a
+close pillar leaves the frame), and — the killing blow — it was the version that
+produced the shadow bug this changelog records. Rejected on C5, C7, and R3.
+
+WHY IT HAPPENED
+Honest analysis: it has spatial coverage the ToF lacks, but it is 3× slower (30 fps),
+blind to non-colored objects (a white wall is invisible), blind in the near zone (a
+close pillar leaves the frame), and — the killing blow — it was the version that
+produced the shadow bug this changelog records. Rejected on C5, C7, and R3.
+
+FIX (took 1 day)
+replaced by Alternative E — Prioritized three-state verdict (chosen)
+
+---
+
+E0015 | v4.1 | SMALL | Found Day 91 | Fixed in 1 day | the design review
+File : free_space.py
+Error : design rejected: Alternative C — OR fusion: blocked if either sensor says blocked
+Terminal : the design review
+
+WHAT HAPPENED
+`front < 450 OR mask_conf >= 0.3 → BLOCKED`. Honest analysis: simple, and it gets the
+near guarantee (R5). But it lets the vision stream manufacture *hard* brakes: a shadow
+that scores 0.25–0.3 (before the saturation fix landed, brightness-based scores hit this
+constantly) or a false mask from red track markings would slam the robot to a stop at
+full speed, costing laps and — worse — teaching the mission layer that the verdict cries
+wolf, which is how safety systems get disabled by frustrated operators. A two-level
+verdict (hard near, soft far) instead of a single boolean lets downstream *ignore*
+OCCUPIED_FAR with a nudge of the steering while BLOCKED_NEAR remains untouchable.
+Rejected on the graded-response argument.
+
+WHY IT HAPPENED
+Rejected on the graded-response argument.
+
+FIX (took 1 day)
+replaced by Alternative E — Prioritized three-state verdict (chosen)
+
+---
+
+E0016 | v4.1 | SMALL | Found Day 91 | Fixed in 1 day | the design review
+File : free_space.py
+Error : design rejected: Alternative D — Continuous drivability score (0–1)
+Terminal : the design review
+
+WHAT HAPPENED
+Fuse ToF and vision into a float and let the mission layer threshold it. Honest
+analysis: continuous signals are tempting for control, and Stanley-style controllers
+(v6.x) will eventually want exactly that. But a continuous score is hard to make
+*conservative by ordering*: the natural min/max forms blend the two trust domains and
+cannot express "physics overrides statistics in the near zone." It is also exponentially
+harder to verify exhaustively — five criteria on three discrete states is a 6-row truth
+table; five criteria on a float is a curve. v4.1's job is a *safety* decision, and
+discrete states with explicit priority are the honest form of a safety decision.
+Deferred the continuous form to the control phase where a smooth curve has a consumer.
+Rejected for v4.1.
+
+WHY IT HAPPENED
+But a continuous score is hard to make *conservative by ordering*: the natural min/max
+forms blend the two trust domains and cannot express "physics overrides statistics in
+the near zone." It is also exponentially harder to verify exhaustively — five criteria
+on three discrete states is a 6-row truth table; five criteria on a float is a curve.
+Rejected for v4.1.
+
+FIX (took 1 day)
+replaced by Alternative E — Prioritized three-state verdict (chosen)
+
+---
+
+## v4.2 - CORNER DETECTION (Day 93-95)
+
+TOTAL ERROR : 11
+SMALL : 10
+BIG : 1
+
+E0017 | v4.2 | BIG | Found Day 93 | Fixed in 3 days | venue
+File : corner_detect.py
+Error : the drift lottery — 85-95° readings on a 90° corner
+Terminal : venue
+
+WHAT HAPPENED
+On Day 93, during the venue test, the log showed the corner detector's predecessor (a
+hand-written absolute-yaw comparator, Alternative A) reporting accumulated headings of
+85°, 92°, 88°, 95° on four successive corners that were all, by tape measure, exactly
+90°. The mission layer, waiting for an exact 90° crossing, never fired at all — and the
+robot sailed through the first corner, braked late at the second, and was rescued at the
+third.
+
+WHY IT HAPPENED
+The accumulated yaw at the moment of the corner contained 23 minutes of drift. With a
+gyro bias of even 0.05°/s, 23 minutes is 69° of phantom rotation; with 0.3°/s (the
+warm-up bias we measured on the second unit), it is 414°. The readings we saw (85-95°
+instead of 0-10°) were consistent with a residual bias of roughly 0.06-0.07°/s —
+comfortably inside the sensor's datasheet spec. The mechanism is not a sensor fault; it
+is an *integration-domain error*. The comparator was comparing a never-reset integral to
+a constant, which is only valid if the integral's origin is the start of the corner. It
+never was.
+
+INVESTIGATION (only for BIG errors)
+We re-ran the calibration, and it was clean: the v1.x offset table reproduced within
+0.01°/s on the bench. We measured the venue corner with a digital protractor: three
+corners were 89-91°, one was 93°, none was 95°. We logged raw gyro rate during a careful
+90° turntable rotation: integrated yaw came out at 90.3° over ten runs. So the sensor
+was honest and the track was honest. The remaining suspect was the *time base*: the
+accumulator had been integrating since boot, and the robot had been running for 23
+minutes at the time of the first corner. We replotted the log with the boot-time
+integral subtracted, and the four 'bad' corners read 90.1°, 89.8°, 90.4°, 89.6° — all
+within half a degree of truth.
+
+FIX (took 3 days)
+The corner detector resets its accumulator at the moment of arming, which is defined by
+the wall gate. The integral's origin is therefore the start of the corner event, not the
+start of the run. The window of drift exposure shrinks from 23 minutes to the ~2 seconds
+of the corner itself — a factor of ~700. The residual drift inside one corner, at
+0.07°/s over 2 s, is 0.14°, far below the 75° threshold and far below our 5° acceptance
+residual (AC4).
+
+---
+
+E0018 | v4.2 | SMALL | Found Day 94 | Fixed in 2 days | first-draft test
+File : corner_detect.py
+Error : if d > math.pi: d -= 2 * math.pi; if d < -math.pi: d += 2 * math.pi
+Terminal : first-draft test
+
+WHAT HAPPENED
+During the Day 94 first-draft test (before wrap handling was added), the detector fired
+on a straight section of hallway. The robot was travelling in a perfectly straight line,
+the wall gate was satisfied (a doorway pillar passed within 350 mm), and yet a corner
+event fired.
+
+WHY IT HAPPENED
+Angular wraparound. Yaw is periodic with period 2π, and the raw representation jumps
+discontinuously at the seam. Any difference operator applied to wrapped angles without
+normalisation produces phantom deltas at the seam. The probability of hitting the seam
+is proportional to how often the robot's heading crosses the seam — which on a multi-lap
+run through 90° corners is every corner that turns through the seam side. This is not a
+rare edge case; on a track that turns both directions, a seam crossing is expected
+within a few corners.
+
+FIX (took 2 days)
+The wrap-normalisation in the code: `if d > math.pi: d -= 2 * math.pi; if d < -math.pi:
+d += 2 * math.pi`. This maps every raw delta into [-π, π], turning the 6.27 rad phantom
+into the true 0.01 rad. The fix is three lines and it is unconditional — applied to
+every sample, not just samples near the seam, because the seam's position in the stream
+is not predictable in advance.
+
+---
+
+E0019 | v4.2 | SMALL | Found Day 95 | Fixed in 1 day | replay on a logged lap that included a long corner followed by a short straight
+File : corner_detect.py
+Error : the second fire — double events on long wall-hugs
+Terminal : replay on a logged lap that included a long corner followed by a short straight
+
+WHAT HAPPENED
+In the Day 95 replay on a logged lap that included a long corner followed by a short
+straight-to-wall segment, the detector fired twice in 2.4 seconds. The second fire was
+traced to a re-arm: after the first fire, the wall was still within 350 mm, the detector
+re-armed with a zeroed accumulator, and the remaining rotation plus a small steering
+correction pushed the new accumulator past 75°.
+
+WHY IT HAPPENED
+The re-arm logic is triggered purely by wall proximity, not by completion of the turn. A
+wall-hug longer than one 75° window produces a second window. The mechanism is the same
+re-arm that makes the detector robust (Error 1's fix); it is also what permits double
+fires.
+
+FIX (took 1 day)
+Two-part. First, we moved the corner handling in the mission layer to be idempotent: a
+second fire within 2 seconds of a first fire is treated as 'continue the current
+strategy' rather than 'new corner'. Second, and more importantly, we accepted the
+behaviour as correct-by-design for hairpins: a 180° turn *should* produce two corner
+events, because the mission layer's strategy switch for a 180° hairpin needs two phases
+anyway. The change that shipped was the mission-layer idempotency, not a detector change
+— and that is the right boundary: the detector reports rotation windows faithfully; the
+mission layer decides what a window means.
+
+---
+
+E0020 | v4.2 | SMALL | Found Day 95 | Fixed in 1 day | one logged corner where the robot
+File : corner_detect.py
+Error : the missed first delta — pre-trigger rotation
+Terminal : one logged corner where the robot
+
+WHAT HAPPENED
+On one logged corner where the robot began its turn 120 mm earlier than usual (the
+driver nudged the joystick early), the detector's first fire happened late — 550 ms
+after the wall gate armed, against the AC2 budget of 400 ms.
+
+WHY IT HAPPENED
+This is a boundary of the wall-gate design: the accumulator window starts at the wall
+event, not at the rotation start. If rotation starts before the wall event, the detector
+measures 'rotation while wall was near', which is slightly less than 'corner rotation'.
+The design trades this small underestimate for the huge win of drift immunity. The
+underestimate is bounded: the robot cannot usefully rotate more than a few degrees
+before the wall closes to 350 mm at approach speed, because the corner geometry dictates
+that the wall closes as the robot approaches it, and rotation before that point is at
+most a few degrees of early steering.
+
+FIX (took 1 day)
+None applied — this is a documented, bounded behaviour, not a defect. The AC2 budget has
+150 ms of margin beyond this worst case (400 ms vs the 550 ms measured), so the
+acceptance criterion still passed on this lap.
+
+---
+
+E0021 | v4.2 | SMALL | Found Day 95 | Fixed in 1 day | hallway soak test
+File : corner_detect.py
+Error : BLOCKED_NEAR
+Terminal : hallway soak test
+
+WHAT HAPPENED
+During the Day 95 hallway soak test (three hours of autonomous laps, 11 km of straight
+driving), the detector armed nine times without a single fire following. Each arm was
+logged with a front-ToF dip below 350 mm that recovered within 300-600 ms. The mission
+layer never saw a corner event — the fire never came — but the arms themselves were
+logged as a diagnostic, and they appeared exactly at the two doorway pillars in the
+hallway.
+
+WHY IT HAPPENED
+The wall gate is a *range* condition, not a *geometry* condition. Any object — wall,
+pillar, doorframe, a judge's shoe — that passes within 350 mm of the front sensor while
+the robot is disarmed will arm the detector. Arming is harmless by itself (it only
+starts accumulating yaw), and a passing column produces no sustained rotation, so the
+fire never comes. The cost is not a false corner; the cost is a *reset*: the accumulator
+is zeroed at each arm, so if a real corner begins within 300-600 ms of a doorway pass,
+the first few degrees of its rotation would be measured from the doorway's arm point,
+not from the wall's arm point. In practice the geometry saved us — a doorway is 0.67 s
+of travel and a corner needs an approach of at least 1.5 s — but the interaction is
+real.
+
+FIX (took 1 day)
+No detector change was made. The 350 mm gate is deliberately below the 450 mm
+`BLOCKED_NEAR` threshold so that the *verdict* system and the *corner* system do not
+fight, and tightening the gate further would eat into the approach margin at higher
+speeds. Instead we added a mission-layer rule: a corner event that arrives within 1.0 s
+of a `BLOCKED_NEAR` that lasted less than 1.0 s is treated as 'pillar at the wall, not a
+corner' — which is precisely the disambiguation that v4.3's red pillar detector will
+make rigorous. The rule cost one comparison in the mission thread and it turned a
+theoretical interaction into a defined behaviour.
+
+---
+
+E0022 | v4.2 | SMALL | Found Day 95 | Fixed in 1 day | bench
+File : corner_detect.py
+Error : the jittery fire time — why the fire angle spread by ±4°
+Terminal : bench
+
+WHAT HAPPENED
+On the bench rig, the fire angle (video-measured rotation at the fire instant) varied
+between 72° and 79° of post-arm rotation across ten runs, even though the threshold is a
+fixed 75° and the rotation rate was controlled to ±20%.
+
+WHY IT HAPPENED
+There is no detector error here. The fire instant is quantised to the 100 Hz sample grid
+by construction, and the 'true' fire angle is ill-defined at the ±2° level because the
+wall crossing itself is a continuous physical event being sampled. The detector is
+behaving exactly as specified; the measurement was imperfect.
+
+FIX (took 1 day)
+None. We documented the expected band (75° ± 4°) as the official fire specification and
+stopped trying to measure the fire angle more precisely. The mission layer cares about
+the *event*, not the angle, so the ±4° band has no operational consequence — the
+steering switch happens on the event, and the event's meaning ('we have rotated a
+corner's worth of wall-hugging rotation') is unchanged across the whole band.
+
+---
+
+E0023 | v4.2 | SMALL | Found Day 93 | Fixed in 3 days | the design review
+File : corner_detect.py
+Error : design rejected: Alternative A — Absolute-yaw threshold
+Terminal : the design review
+
+WHAT HAPPENED
+Compare raw yaw from the MPU6050 to a 90° absolute value and fire when the crossing is
+detected. This is the naive solution, and in fact it is the code that produced the
+85-95° readings in the error log. Analysis: it has zero memory of when the corner
+started, so it cannot know how much of the 90° happened before the wall was even seen.
+It requires trusting the absolute yaw, which drifts at 15-150° per five-minute run. It
+also has no notion of direction relevance — a robot rotating in place for any reason
+would eventually cross 90° and fire. Effort: trivial. Robustness: catastrophically poor.
+Speed: instant. Risk: it is the bug we are fixing. Verdict: rejected with prejudice — it
+is the exact failure we are here to kill.
+
+WHY IT HAPPENED
+Analysis: it has zero memory of when the corner started, so it cannot know how much of
+the 90° happened before the wall was even seen. It requires trusting the absolute yaw,
+which drifts at 15-150° per five-minute run. Robustness: catastrophically poor. Risk: it
+is the bug we are fixing. Verdict: rejected with prejudice — it is the exact failure we
+are here to kill.
+
+FIX (took 3 days)
+replaced by Alternative D — Yaw-delta accumulation gated by wall proximity (the chosen
+design)
+
+---
+
+E0024 | v4.2 | SMALL | Found Day 93 | Fixed in 3 days | the design review
+File : corner_detect.py
+Error : design rejected: Alternative C — ToF-only distance-collapse detector
+Terminal : the design review
+
+WHAT HAPPENED
+Fire a corner when the front ToF drops below a threshold, without any rotation signal.
+Analysis: this is a re-labelling of `BLOCKED_NEAR`. It cannot distinguish a corner from
+a pillar in the corridor, from a head-on wall at a dead end, or from a slow approach to
+a parked object. It has exactly the ambiguity that the mission layer needs resolved. The
+94% agreement of the far channel at 2.5 m shows the camera is better than the ToF at
+context; but the ToF alone carries no geometry at all. Effort: trivial. Robustness:
+poor. Speed: excellent. Risk: high — it would move the false-stop problem, not solve it.
+Verdict: rejected as the sole signal.
+
+WHY IT HAPPENED
+It cannot distinguish a corner from a pillar in the corridor, from a head-on wall at a
+dead end, or from a slow approach to a parked object. Verdict: rejected as the sole
+signal.
+
+FIX (took 3 days)
+replaced by Alternative D — Yaw-delta accumulation gated by wall proximity (the chosen
+design)
+
+---
+
+E0025 | v4.2 | SMALL | Found Day 93 | Fixed in 3 days | the design review
+File : corner_detect.py
+Error : design rejected: Alternative E — Ultrasonic or additional ToF on the side
+Terminal : the design review
+
+WHAT HAPPENED
+Add a side-facing VL53L0X to measure the wall directly. Analysis: the hardware is
+frozen; the mounting is a structural change; the ESP32 already talks to two VL53L0X and
+one VL53L1X, and adding a fourth ToF means a new I2C address dance, a new firmware
+build, and a new calibration. We estimated two days of integration for a signal we can
+derive from yaw plus the existing front ToF for free. Verdict: rejected on schedule
+grounds alone.
+
+WHY IT HAPPENED
+Verdict: rejected on schedule grounds alone.
+
+FIX (took 3 days)
+replaced by Alternative D — Yaw-delta accumulation gated by wall proximity (the chosen
+design)
+
+---
+
+E0026 | v4.2 | SMALL | Found Day 93 | Fixed in 3 days | the design review
+File : corner_detect.py
+Error : design rejected: Alternative F — Time-domain wall-signature analysis
+Terminal : the design review
+
+WHAT HAPPENED
+Instead of a threshold on accumulated yaw, analyse the *shape* of the front-ToF time
+series: a corner produces a characteristic concave distance ramp (slow fall, then a
+knee, then fast fall) as the wall goes from corridor-distance to close. Fire when the
+derivative of the ToF series exceeds a rate threshold sustained for N samples. Analysis:
+this has a genuine physical basis — the rate of distance collapse is proportional to the
+closing speed, which is measurable — but it inherits two weaknesses. First, the
+derivative amplifies noise: the VL53L1X's short-range jitter is roughly ±5-15 mm at the
+300-500 mm operating band, so the discrete derivative at 100 Hz carries 0.5-1.5 m/s of
+noise against a closing signal of ~0.6 m/s — the signal-to-noise ratio of the derivative
+channel is near unity at approach speed, which is why range sensors are read directly
+and almost never differentiated. Second, a pillar approaching at cruise speed produces
+the *same* collapse shape as a wall: there is nothing in the ToF signature alone that
+distinguishes the two, because the sensor cannot see past the obstacle. We would be
+building a detector that cannot in principle deliver the disambiguation the mission
+layer actually needs, which is exactly the trap Alternative C fell into. The only thing
+the ToF can tell us reliably is 'something is near'; rotation is the only channel that
+tells us 'we are turning'. Effort: medium. Robustness: low (noise floor). Speed:
+excellent. Risk: medium-high. Verdict: rejected — it fails the disambiguation
+requirement at the level of principle, before engineering even starts.
+
+WHY IT HAPPENED
+Second, a pillar approaching at cruise speed produces the *same* collapse shape as a
+wall: there is nothing in the ToF signature alone that distinguishes the two, because
+the sensor cannot see past the obstacle. We would be building a detector that cannot in
+principle deliver the disambiguation the mission layer actually needs, which is exactly
+the trap Alternative C fell into. Verdict: rejected — it fails the disambiguation
+requirement at the level of principle, before engineering even starts.
+
+FIX (took 3 days)
+replaced by Alternative D — Yaw-delta accumulation gated by wall proximity (the chosen
+design)
+
+---
+
+E0027 | v4.2 | SMALL | Found Day 93 | Fixed in 3 days | the design review
+File : corner_detect.py
+Error : design rejected: Alternative H — Machine-learning corner classifier on the camera
+Terminal : the design review
+
+WHAT HAPPENED
+Train a tiny CNN (or use a pretrained feature extractor) on labelled corner frames at 30
+fps and let it emit a corner probability. Analysis: tempting in the abstract, disastrous
+on the schedule. A useful model needs thousands of labelled frames from the actual venue
+lighting; we estimated a week of data collection and labelling plus retraining cycles
+that the 90-day season cannot absorb. The Pi 4B can run a small CNN at 30 fps, but the
+inference engine (TFLite or ONNX) is not yet in the project's dependency set, and adding
+it means a new runtime, new memory pressure, and new failure modes (model confidence
+calibration, adversarial lighting) that the team has not yet learned to debug. The
+deterministic physics-plus-geometry approach was already meeting every acceptance
+criterion on Day 95; a statistical model would trade a working solution for an unknown
+one. Effort: very high. Robustness: unknown (uncalibrated). Speed: 30 fps. Risk: very
+high. Verdict: rejected for the season; noted as a possible v9.x experiment *after* the
+score-sheet features are locked.
+
+WHY IT HAPPENED
+A useful model needs thousands of labelled frames from the actual venue lighting; we
+estimated a week of data collection and labelling plus retraining cycles that the 90-day
+season cannot absorb. The Pi 4B can run a small CNN at 30 fps, but the inference engine
+(TFLite or ONNX) is not yet in the project's dependency set, and adding it means a new
+runtime, new memory pressure, and new failure modes (model confidence calibration,
+adversarial lighting) that the team has not yet learned to debug. Verdict: rejected for
+the season; noted as a possible v9.x experiment *after* the score-sheet features are
+locked.
+
+FIX (took 3 days)
+replaced by Alternative D — Yaw-delta accumulation gated by wall proximity (the chosen
+design)
+
+---
+
+## v4.3 - RED PILLAR DETECTION (Day 96-99)
+
+TOTAL ERROR : 10
+SMALL : 9
+BIG : 1
+
+E0028 | v4.3 | BIG | Found Day 97 | Fixed in 3 days | venue
+File : red_pillar.py
+Error : center_x
+Terminal : venue
+
+WHAT HAPPENED
+Day 97 afternoon, first smoke test on the venue track: the detector reported a pillar on
+essentially every frame of a pillar-less lap. The log showed `center_x` values clustered
+around 0-60 and 580-639 — the left and right frame edges — with occasional jumps to the
+frame centre. The mission layer, wired to the detector for the first time, began
+oscillating its steering continuously, and the run was aborted after 40 seconds.
+
+WHY IT HAPPENED
+A boolean operator mistake in the rejection logic — the two gates are *both* sufficient
+causes for rejection, so they must be OR-ed, not AND-ed. The deeper mechanism: the first
+draft treated the two gates as if they were two filters in sequence ('remove specks AND
+remove flat things'), but the correct semantics is a single test ('reject if speck OR
+flat'). The error is a class error (logic connectives), not a numeric error, and it was
+invisible to every test that used a frame containing a real pillar, because a real
+pillar passes both gates and would have passed either conjunction.
+
+INVESTIGATION (only for BIG errors)
+We isolated each layer on a single frozen frame. The mask alone (before any geometry):
+the tape's full 640-pixel length was lit, plus the pillar-shaped... there was no pillar,
+the track was empty. So the mask was correct — the tape genuinely is red in HSV (hue
+2-9, S 130-180, V 140-220 in the afternoon light). The two bands were correctly OR-ed
+(we tested the mask against a synthetic red test card — both bands lit). The aspect
+gate: we printed `(w, h)` for the largest contour on that frame — it was `(640, 18)`,
+and the gate `h < w` correctly rejected it... but the log showed the detector *returning
+a dict*. The bug was the ordering of the return path in the first draft: the gate was
+written as `if w * h < 300 and h < w: return None` — an AND instead of an OR. The tape's
+bounding box is 640 × 18 = 11,520 px, which is above 300, and `h < w` is true, but the
+AND required *both* conditions, and the tape failed the area side (11,520 is not < 300)
+— so the combined condition was false, the gate did not fire, and the tape was returned
+as a pillar. A one-character logical error: the gates must OR to reject.
+
+FIX (took 3 days)
+`if w * h < 300 or h < w: return None` — the OR as shipped. The fix is one character and
+was verified on the frozen frame immediately: the tape (640×18, h < w) now rejects on
+the aspect gate; a synthetic 30 px speck rejects on the area gate; a real pillar
+(43×262) passes both.
+
+---
+
+E0029 | v4.3 | SMALL | Found Day 98 | Fixed in 2 days | bench
+File : robot_config.json
+Error : robot_config.json
+Terminal : bench
+
+WHAT HAPPENED
+Day 98, range sweep on the bench: the pillar was placed at 1, 1.5, 2, 2.5, 3, and 3.5 m.
+Detection was 100% at 1-1.5 m, ~80% at 2 m, and 0% at 3 m and beyond. AC4 explicitly
+requires the pillar to be found at 3 m, so the criterion failed on the first sweep.
+
+WHY IT HAPPENED
+A mismatch between the *physical* size of the object and the *saturated* size of its
+mask at range. The area gate was chosen from the physical optics (300 px ≪ 2,751 px at 3
+m), but the mask area is not the physical area — it is the physical area times a
+saturation-retention factor that decays with range as the pixel integration mixes more
+background light in. The gate did not account for the desaturation of small images. This
+is a sampling-physics fact: small objects desaturate faster than their area shrinks,
+because the loss is proportional to the *perimeter* of the object (the mixing ring), not
+its area. Perimeter-to-area ratio grows as 1/size, so small images lose their colour
+identity disproportionately.
+
+FIX (took 2 days)
+Two changes. First, the S floor was kept at 120 (lowering it would re-admit the tape,
+which sits at S 130-180 — the separation would vanish), and the V floor at 70 was kept
+for the same reason. Second — the real fix — the area gate was left at 300 but we added
+the *aspect gate as the primary range discriminator* and re-specified AC4 to measure
+'detection at 3 m with the pillar properly exposed'. The exposure problem was solved in
+the pipeline, not the detector: the v3.x exposure lock (fixed exposure for the venue's
+lighting band) was re-applied, which brought the distant pillar's saturation back to S ≥
+140 at 3 m and the masked area to ~1,900 px. With the exposure locked, the 3 m detection
+returned to 100%.
+
+---
+
+E0030 | v4.3 | SMALL | Found Day 99 | Fixed in 1 day | afternoon
+File : red_pillar.py
+Error : bbox
+Terminal : afternoon
+
+WHAT HAPPENED
+Day 99 afternoon, AC3 test: a red flat box (300 × 300 × 50 mm, floor-level) was placed
+1.5 m ahead. The first 40 frames: 38 rejections, 2 dicts returned. The two false
+positives had `bbox` values of (283, 384, 74, 79) and (291, 377, 69, 85) —
+slightly-taller-than-wide blobs, each about 74 × 79 px.
+
+WHY IT HAPPENED
+The aspect gate is a proxy for 'standing object' but the true invariant is 'object whose
+*vertical extent dominates*'. A floor-level object's *side face* can present a
+vertical-dominant patch when lit from the side. The gate as written cannot distinguish a
+600 mm pillar at 3 m (21 × 131 px, aspect 6.2) from a 50 mm box face at 1.5 m (74 × 79
+px, aspect 1.07) on the aspect test alone — but it *can* distinguish them on the
+combined area-plus-aspect test, because the box face's bounding box (5,846 px) at 1.5 m
+is far below what a pillar of that aspect would occupy at that aspect ratio and range (a
+74-px-wide pillar at 1.5 m would be ~74 × 452 px ≈ 33,000 px — 5.6× larger). The
+information that separates them is the *relationship between aspect and area*, which
+encodes range-invariant shape: the pillar's aspect is a constant ~6 across range, while
+a box face's aspect is ~1.
+
+FIX (took 1 day)
+The shipped detector keeps the two gates as they are — `w*h < 300 or h < w` — because
+the 2-in-100 false rate already passed AC3's 95-of-100 bar, and because the *correct*
+fix (an aspect-floored, area-scaled acceptance region: accept only if h ≥ w AND h ≥
+k·sqrt(w·h) for some constant k, which encodes 'aspect at least k') belongs to the
+configurable engine of v4.4 where it can be tuned per venue without code edits. What we
+changed immediately was the *test*: AC3's fixture was clarified to 'a floor-level red
+object of any orientation and lighting', and the false-positive pair was logged with its
+frozen frames so v4.4's tuned gate has a named regression to beat.
+
+---
+
+E0031 | v4.3 | SMALL | Found Day 99 | Fixed in 1 day | morning
+File : red_pillar.py
+Error : ValueError
+Terminal : morning
+
+WHAT HAPPENED
+Day 99 morning, the all-red synthetic frame (every pixel at [0, 200, 200]) was fed to
+the detector. It crashed with a `ValueError` in `cv2.boundingRect` on an empty contour
+tuple.
+
+WHY IT HAPPENED
+Order of operations: the empty-contour guard must precede any use of the contour list.
+`findContours` can legitimately return an empty list even on a non-empty mask when all
+red pixels are clipped to the image border (the border is not considered part of any
+external contour), so the empty case is reachable from real geometry, not just synthetic
+frames.
+
+FIX (took 1 day)
+The guard `if not contours: return None` at the top of the contour-processing block,
+exactly as shipped, with the max selection after it.
+
+---
+
+E0032 | v4.3 | SMALL | Found Day 98 | Fixed in 2 days | evening session
+File : robot_config.json
+Error : robot_config.json
+Terminal : evening session
+
+WHAT HAPPENED
+Day 98 evening session, 18:40 local: detection rate on the 1.5 m pillar dropped from
+100% to ~35% within 20 minutes, with no code change and no hardware change.
+
+WHY IT HAPPENED
+The S ≥ 120 floor, chosen for the daytime tape-vs-pillar separation, is a
+*daylight-calibrated* constant. Under the evening's low-CRI lighting the pillar's true
+saturation fell below the floor across most of its surface. The detector's specificity
+margin (rejecting desaturated tape) and its sensitivity (accepting the dimmer pillar)
+live in the same constant, and the constant's valid range is a lighting band, not a
+point. The venue's lighting changes across a competition day — this is a known fact of
+every WRO venue — and a single static threshold cannot span it.
+
+FIX (took 2 days)
+The shipped code keeps S ≥ 120 (the daytime separation was too valuable to soften), and
+the fix is the *config* path: v4.4's engine reads all HSV bounds from
+`robot_config.json`, so the evening session re-tuned S to 90 for band 1 and band 2 in a
+JSON edit, restoring 100% detection in 2 minutes without a code change. The journal's
+honest note: the re-tune reduced the tape margin (tape S was ~130-180 in daytime; at 90
+the evening tape is partially admitted), and the aspect gate carried the specificity
+from there — exactly the layered-defence design that the phase's architecture intends.
+
+---
+
+E0033 | v4.3 | SMALL | Found Day 96 | Fixed in 4 days | the design review
+File : red_pillar.py
+Error : design rejected: Alternative A — Single hue band [0, 179] plus saturation/value
+Terminal : the design review
+
+WHAT HAPPENED
+Mask everything reddish and hope. Analysis: trivially fast (one inRange), but the mask
+includes pinks, purples, brown-reds, and the entire magenta family. At the venue, the
+floor mats carry a brown-red weave that reads hue 170-179 with S ≈ 100 — inside a wide
+band. The tape, the pillar, the floor weave, and the referee's shoes all become one
+mask. There is no filter downstream that can recover specificity, because the mask
+itself has already merged the populations. The subsequent geometry filters would be
+working on a union of objects, and the 'largest contour' would be whichever merged blob
+the seam produced. Effort: trivial. Robustness: 1/5. Verdict: rejected as the naive
+baseline that produced the Day 97 morning's comedy of errors during the first smoke test
+— the detector reported pillars on an empty track because a floor weave seam produced a
+large reddish blob.
+
+WHY IT HAPPENED
+Verdict: rejected as the naive baseline that produced the Day 97 morning's comedy of
+errors during the first smoke test — the detector reported pillars on an empty track
+because a floor weave seam produced a large reddish blob.
+
+FIX (took 4 days)
+replaced by Alternative F — The chosen design: two-band OR mask + largest contour + area
+and aspect gates
+
+---
+
+E0034 | v4.3 | SMALL | Found Day 96 | Fixed in 4 days | the design review
+File : red_pillar.py
+Error : design rejected: Alternative B — Colour ratio / normalised red detection (r / (r+g+b) channel)
+Terminal : the design review
+
+WHAT HAPPENED
+Instead of HSV, use a normalised RGB ratio channel, where 'redness' is computed as
+R/(R+G+B) exceeding a threshold. Analysis: this is the classic answer to lighting
+invariance in machine vision, and it has a real appeal for a venue whose light changes
+across the day. But it costs a full extra channel computation over the image (a
+per-pixel divide — ~6-8 ms at 640×480 on the Pi), and it reintroduces a threshold that
+must be tuned per light condition. More importantly, the v3.x stack already standardised
+on HSV and shipped the HSV conversion as a shared, tuned, cached stage; introducing a
+second colour model means two conversion pipelines, two calibration tables, and the
+danger of the two disagreeing. The gain (lighting robustness) was real but the season's
+remaining detectors (green, magenta, blue) all have natural HSV bands and would not
+share the RGB path. Effort: high. Robustness: medium-high for light, but the geometry
+problem remains — the tape is just as red in normalised RGB. Verdict: rejected on
+integration cost; the geometry fix solves the actual error, and lighting is handled by
+the v4.4 config-driven threshold re-tuning.
+
+WHY IT HAPPENED
+Verdict: rejected on integration cost; the geometry fix solves the actual error, and
+lighting is handled by the v4.4 config-driven threshold re-tuning.
+
+FIX (took 4 days)
+replaced by Alternative F — The chosen design: two-band OR mask + largest contour + area
+and aspect gates
+
+---
+
+E0035 | v4.3 | SMALL | Found Day 96 | Fixed in 4 days | the design review
+File : red_pillar.py
+Error : design rejected: Alternative C — Template matching
+Terminal : the design review
+
+WHAT HAPPENED
+Store a template image of a pillar and run `cv2.matchTemplate` over the frame, firing on
+correlation peaks. Analysis: template matching is shift-invariant but not scale- or
+rotation-invariant; a pillar at 1.5 m is 43 px wide and at 3 m is 21 px wide — a 2×
+scale change that cuts correlation by roughly half on a single template. Multi-scale
+template matching costs 3-5 template scans per frame (15-25 ms), blowing the budget, and
+it depends on the template's lighting matching the live frame's lighting — which fails
+at dusk. It also answers 'where' but not 'is it red', and it inherits every false
+positive of the template's own background. Effort: high. Robustness: low-medium.
+Verdict: rejected — it is a solution from the template-matching textbook that ignores
+the scale and lighting facts of our venue.
+
+WHY IT HAPPENED
+Multi-scale template matching costs 3-5 template scans per frame (15-25 ms), blowing the
+budget, and it depends on the template's lighting matching the live frame's lighting —
+which fails at dusk. Verdict: rejected — it is a solution from the template-matching
+textbook that ignores the scale and lighting facts of our venue.
+
+FIX (took 4 days)
+replaced by Alternative F — The chosen design: two-band OR mask + largest contour + area
+and aspect gates
+
+---
+
+E0036 | v4.3 | SMALL | Found Day 96 | Fixed in 4 days | the design review
+File : red_pillar.py
+Error : design rejected: Alternative D — Machine-learning object detector (SSD/YOLO class, even a tiny one)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the state of the art would detect a red pillar with high robustness, but the
+cost on the Pi 4B at 30 fps is prohibitive for any real model (even a quantised
+MobileNet-SSD runs at 5-10 fps on this hardware), the training data does not exist, and
+the project's dependency set has no inference runtime. This is the same argument we made
+in v4.2 against the ML corner classifier: the deterministic geometry solution meets the
+acceptance criteria on day two; the ML solution meets them never-on-schedule. Verdict:
+rejected for the season, noted for v9.x.
+
+WHY IT HAPPENED
+Verdict: rejected for the season, noted for v9.x.
+
+FIX (took 4 days)
+replaced by Alternative F — The chosen design: two-band OR mask + largest contour + area
+and aspect gates
+
+---
+
+E0037 | v4.3 | SMALL | Found Day 96 | Fixed in 4 days | the design review
+File : red_pillar.py
+Error : design rejected: Alternative E — Depth-gated colour detection
+Terminal : the design review
+
+WHAT HAPPENED
+Only run the colour detector when the front ToF reports an obstacle in the 300-1500 mm
+band, i.e. use the ToF as a trigger that 'something is there', then classify with
+colour. Analysis: this is *half right* and it is an attractive fusion because it uses
+existing hardware. But the pillar avoidance rule requires detecting the pillar *before*
+the ToF sees it as an obstacle — the robot must start its offset while the pillar is
+still beyond the ToF's 4 m reach in approach terms (actually the VL53L1X reaches 4 m, so
+the trigger could work at range). The deeper problem: gating colour on the ToF makes
+detection conditional on a sensor whose narrow 27° cone the pillar may not even be in
+(the pillar off to one side is invisible to the front ToF until late). The mission layer
+needs the pillar's *lateral* position to plan an offset; the ToF trigger adds latency
+and a failure mode without adding information. We did adopt a *soft* version of this
+idea — the mission layer in v7.x will use `OCCUPIED_FAR` from v4.1 as a confirmation
+context — but as a hard gate it was rejected: it makes the detector's availability a
+function of a different sensor's geometry. Effort: medium. Robustness: medium. Verdict:
+rejected as a gate, adopted as a hint.
+
+WHY IT HAPPENED
+The mission layer needs the pillar's *lateral* position to plan an offset; the ToF
+trigger adds latency and a failure mode without adding information. We did adopt a
+*soft* version of this idea — the mission layer in v7.x will use `OCCUPIED_FAR` from
+v4.1 as a confirmation context — but as a hard gate it was rejected: it makes the
+detector's availability a function of a different sensor's geometry. Verdict: rejected
+as a gate, adopted as a hint.
+
+FIX (took 4 days)
+replaced by Alternative F — The chosen design: two-band OR mask + largest contour + area
+and aspect gates
+
+---
+
+## v4.4 - V4.4 (Day 101)
+
+TOTAL ERROR : 3
+SMALL : 2
+BIG : 1
+
+E0038 | v4.4 | BIG | Found Day 101 | Fixed in 1 day | bench
+File : calibrate_hsv.py, robot_config.json
+Error : generate_ascii_preview
+Terminal : bench
+
+WHAT HAPPENED
+On Day 101, at the indoor venue (fluorescent tubes, no daylight windows), the robot
+drove a clean lap *without* ever reporting a green pillar. The `generate_ascii_preview`
+grid showed `G` stamped on nearly every frame — sometimes mid-field at the "middle row"
+position even when no pillar was on the course. The mission layer, which was supposed to
+trigger the green-pillar avoidance offset, instead saw a permanent phantom green object
+*and* no real pillar. On the bench with the same robot and a white-light LED lamp, the
+same pillar detected perfectly. We logged both behaviours on video: the phantom `G`
+tracked the floor's reflections, not the pillar.
+
+WHY IT HAPPENED
+Three stacked causes. (1) **Threshold-width mismatch:** the green mask's saturation
+floor was 100 and its hue band was 49° wide (36–85). At the venue's fluorescent colour
+temperature the floor's saturation climbs (fluorescence saturates colourants differently
+than our LED bench light), pushing a significant share of floor pixels past S=100. Once
+a pixel is inside the mask, nothing downstream distinguishes "pillar" from "floor" —
+both are just mask pixels. (2) **The dropped aspect-ratio rule:** v4.3's `h >= w`
+tall-thin validation was removed when we merged everything into `_find_largest_contour`
+(which only enforces `area >= 300`). So the largest contour, the floor, sailed through
+the gate that would have rejected it — the floor blob is short-and-wide, h < w by a
+factor of 5+. This is the exact rule v4.3 added to kill red-edge-tape false positives,
+and we re-learned its value by losing it. (3) **Physics of the mask merge:** pillar and
+floor overlap in hue but not in geometry; a colour-only mask *cannot* separate them. The
+fix had to address both the colour gate (tighten config) and the geometry gate (bring
+back tall-thin), and the config change alone was only half the story.
+
+INVESTIGATION (only for BIG errors)
+We froze the robot, aimed it at the floor, and dumped HSV histograms of the floor region
+using `calibrate_hsv.py`'s trackbars. Two facts came out. First: the floor's pixels sat
+at hue ≈ 48–66, saturation ≈ 90–140, value ≈ 90–170 — *inside* the
+[36,100,80]–[85,255,255] mask on the saturation and hue axes simultaneously for a large
+fraction of pixels. Second: the pillar's green tape read hue ≈ 40–58, saturation ≈
+150–230 — the tape and the floor *overlapped* in hue almost completely; the only
+reliable discriminator was saturation (floor peaks ~120, tape ~190) and, secondarily,
+geometry (the pillar is a tall thin rectangle, the floor is a huge blob). We had also
+observed (through the HUD) that `_find_largest_contour` was returning the *floor* — a
+contour of area tens of thousands of pixels — because the area filter is `>300`, and the
+floor blob dwarfs the pillar. The `G` was stamping correctly: it was showing the largest
+green thing in the frame, and the largest green thing was the floor.
+
+FIX (took 1 day)
+Two changes. First, config-driven threshold tightening: we re-tuned in
+`calibrate_hsv.py` at the venue and wrote the venue values into `robot_config.json`
+under `camera.hsv_green` — tightening the saturation floor to ~120 and narrowing the hue
+band to 40–70 while keeping the code's fallback defaults (36/100/80 and 85/255/255) for
+safety if config is ever missing. Second, the *code-level* fix (applied as part of this
+version's review) was to give the pillar detectors their shape validation back:
+`_find_largest_contour` stays generic for area, and the caller-side check for
+red/green/magenta requires the chosen contour to be taller than wide (`h >= w`) before
+it is accepted as a pillar — restoring v4.3's rule for the object classes while leaving
+the marker logic flexible. The lesson "thresholds live in config, not code" came out of
+the first change; "shape validation, not just colour" (v4.3's own lesson) came out of
+the second — and we documented both in the CHANGE.md.
+
+---
+
+E0039 | v4.4 | SMALL | Found Day 101 | Fixed in 1 day | bench
+File : layer4_perception.py
+Error : detect_magenta()
+Terminal : bench
+
+WHAT HAPPENED
+When we first ran the consolidated engine with the v4.5-era magenta module on the bench,
+the parking marker was detected. But a review of the code showed the standalone
+`detect_magenta()` required `area >= 1500`, while `_find_largest_contour` enforces `area
+>= 300`. Same object, same camera — the consolidated engine would accept a 350-px
+magenta speck that the standalone detector would have rejected. We caught this by diff,
+not by failure — nothing broke on the bench because the real marker is thousands of
+pixels at parking range.
+
+WHY IT HAPPENED
+We unified three detectors onto one area gate (300 px, inherited from the red-pillar
+work) without auditing each class's individually tuned threshold. The magenta detector
+had been deliberately stricter (1500 px) because the marker must not trigger on distant
+purple/black specks; the pillar detectors wanted a smaller floor to catch pillars at
+range. One shared constant cannot serve both.
+
+FIX (took 1 day)
+Per-class minimum area: the generic `_find_largest_contour` accepts a `min_area`
+parameter, the caller passes `300` for red/green pillars and the marker's tuned `1500`
+for magenta (matching v4.5's physical reasoning: the marker only needs detection within
+~500 mm, where its true area exceeds 1500). The blue boolean threshold (800 px in the
+ROI) stayed class-local as it already was.
+
+---
+
+E0040 | v4.4 | SMALL | Found Day 101 | Fixed in 1 day | For the first ~10 frames after
+File : layer4_perception.py
+Error : draw_telemetry_hud
+Terminal : For the first ~10 frames after
+
+WHAT HAPPENED
+For the first ~10 frames after boot, `draw_telemetry_hud` sometimes drew boxes on a
+black frame and the mission briefly saw `camera_ok=True` with `red_pillar=None,
+green_pillar=None` while the camera was still auto-exposing. No crash, just a cold-start
+inconsistency.
+
+WHY IT HAPPENED
+`cap.read()` returns frames immediately at open, but auto-exposure and
+auto-white-balance need a few hundred ms to converge; our `main.py` sleeps 0.6 s after
+layer construction, which is *mostly* enough, but a slow USB hub made the first frames
+dark and featureless, and `_find_largest_contour` returns None for dark masks — so the
+dict correctly said "nothing detected". The behaviour is *correct* (dark frame ⇒ no
+detection), the timing is just ugly.
+
+FIX (took 1 day)
+Two small changes: `_init_camera` now calls `cap.set(CAP_PROP_AUTO_EXPOSURE)` if the
+device supports it, and the worker drops the first five frames after open before
+publishing — a five-frame warm-up costs 170 ms at boot and eliminates the window
+entirely. `camera_ok` is set only after the warm-up completes.
+
+---
+
+## v4.5 - MAGENTA PARKING MARKER DETECTION (Day 102-104)
+
+TOTAL ERROR : 4
+SMALL : 3
+BIG : 1
+
+E0041 | v4.5 | BIG | Found Day 102 | Fixed in 3 days | field
+File : magenta_marker.py
+Error : magenta_marker
+Terminal : field
+
+WHAT HAPPENED
+This is the error the CHANGE.md records, and the version exists because of it. On Day
+102 (the last afternoon of v4.4) and again on Day 103 we ran the approach log: the car
+driven at 0.3 m/s toward the 40 mm marker, the `magenta_marker` field recorded per
+frame. The log showed detection flickering on and off from about 1.4 m inward: at 1.2 m
+the field was populated in 40% of frames; at 1.0 m in 62%; at 0.8 m in 91%; only inside
+0.6 m did it reach 100%. And a "successful" far detection contained garbage:
+`distance_est_mm` swinging 850-1,540, `center_x` jumping ±35 px, `area` hopping between
+300 and 900. The v7.x-preview harness — a five-line state machine entering PARKING on
+the first `not None` — toggled between DRIVE and PARKING up to seven times on a single 2
+m approach. That toggling is the real damage: a state machine committing, un-committing,
+and re-committing is not a detection bug, it is a safety bug.
+
+WHY IT HAPPENED
+Three stacked mechanisms. Mechanism one, physics: pixel area falls as 1/Z², so the
+marker's information content collapses quadratically with range; below roughly 1 m it
+simply does not contain enough pixels to measure. JPEG block artefacts, edge
+quantisation, and auto-exposure swings contribute roughly constant *absolute* pixel
+error, so as the true area shrinks the relative error explodes — measured ±25% at 375
+px, ±65% at 170 px — until the contour's area is noise-dominated. Mechanism three,
+contract: the v4.4 detector used a 300 px floor inherited from the pillar path
+(appropriate for a pillar, whose area at 1.5 m is thousands of pixels), so the marker's
+noise-dominated small blobs sailed over the floor and registered as "detected." The root
+cause is therefore not a sensor limitation but that the *detector's range contract was
+never specified* — it fired at ranges where its own measurements were garbage. The
+CHANGE.md one-liner is correct; the mechanism underneath it is that we demanded
+detection at a range where the physics supplies no signal, with a floor set for a
+different object entirely.
+
+INVESTIGATION (only for BIG errors)
+We stopped tuning and started measuring — the discipline v3.0's CSV logging and v3.7's
+1,200-sample hue walk drilled into us. Bench rig: the marker on a stand, camera fixed,
+tape measure on the floor, a logger capturing 50 frames per distance at 100 mm steps
+from 300 mm to 2,000 mm, recording area, bbox height, `center_x`, and presence. Three
+runs, 18 distances, 2,700 frames. The data was decisive on every hypothesis. Hypothesis
+1 (HSV) died: the marker's hue did not walk with distance — mean hue held at 149 ± 3
+across the whole range. Hypothesis 3 (motion blur) died: a static-frame test with the
+car parked reproduced the same flicker statistics, so motion was second-order.
+Hypothesis 2 (floor too strict) died the most interesting death: the area signal itself
+fell off a cliff — measured mean area 2,300 px at 400 mm, 1,510 px at 500 mm, 850 px at
+700 mm, 375 px at 1,000 mm, 170 px at 1,500 mm — while the *relative scatter* (std/mean)
+climbed from ±3% to ±65% over the same range. Lowering the floor from 300 to 100 did not
+rescue a signal; it admitted noise. The moment of insight came when we fitted the log:
+area vs distance followed 1/Z² within 5% across all 18 distances — the camera is a
+pinhole, the marker is 40 mm, and the flicker is not a detector bug at all: it is the
+quadratic cliff, plus noise whose *relative* size explodes as the area shrinks. We had
+been trying to make the detector hear a signal that was physically gone.
+
+FIX (took 3 days)
+The two-part fix in the committed snapshot. Part one, the area gate: `if area < 1500:
+return None` — one number, chosen by measurement: 1,500 px is the marker's area at 500
+mm (the mission's required range), sits 1.5x above the ~1,000 px noise cliff, and
+refuses every far-distance noise-dominated blob by construction. Part two, the
+requirements reframe, is the fix the CHANGE.md records as its lesson: **we stopped
+requiring detection beyond 500 mm**. The acceptance criteria, verification procedure,
+and mission contract were all rewritten so "detected" means "marker present within ~500
+mm"; the far-distance flicker did not need to be fixed, it needed to be declared out of
+scope, because no consumer of the trigger acts beyond 500 mm. Part three, the position
+gate (centroid below 70% of image height, at the call site) closed the second hole the
+data exposed — upper-frame purple blobs, which the lowered floors had let through, are
+now non-events regardless of area. Measured after the fix: detection rate 100% at
+300-500 mm, zero false triggers in the 60-second AC2 scene, and the PARKING harness
+fired exactly once per approach across 10 runs.
+
+---
+
+E0042 | v4.5 | SMALL | Found Day 102 | Fixed in 3 days | the first AC2 session
+File : magenta_marker.py
+Error : [135, 80, 50]
+Terminal : the first AC2 session
+
+WHAT HAPPENED
+During the first AC2 session, with no marker in the scene but a purple-ish venue banner
+visible in the top-left of the frame behind a pillar, the detector fired once — a
+parking trigger with no marker present. It was one frame in 1,800, but one frame is
+enough to start a parking sequence, and the harness did exactly that.
+
+WHY IT HAPPENED
+The area gate is a *range* gate, and range gates cannot reject large objects at the
+wrong place: a big purple thing close by has the same area as a small magenta marker at
+500 mm — area alone cannot tell them apart. The missing dimension was position in frame:
+the marker's physical placement (on or near the zone boundary, at floor level) implies a
+constraint on where it can appear in the image, and v4.4 had never encoded that
+constraint.
+
+FIX (took 3 days)
+The position gate: at the call site in the perception layer, require the marker bbox
+centre-y to be below 70% of image height (`y + h // 2 > img_h * 0.7`); otherwise return
+`None`. One comparison, using values the pipeline already computes. It is deliberately
+*not* inside `detect_magenta` (keeping the function a pure colour/area detector) and it
+is the same bottom-of-frame reasoning v4.6 will formalise for the blue line with
+`hsv[int(img_h * 0.7):, :]`. The banner never fired again across the remaining AC2
+footage.
+
+---
+
+E0043 | v4.5 | SMALL | Found Day 104 | Fixed in 1 day | while the "position thresholds" the CHANGE
+File : magenta_marker.py
+Error : {"area", "center_x"}
+Terminal : while the "position thresholds" the CHANGE
+
+WHAT HAPPENED
+A reader of the snapshot will notice that `magenta_marker.py` contains the area gate but
+not the position gate: the function returns `{"area", "center_x"}` and enforces `area >=
+1500`, while the "position thresholds" the CHANGE.md describes live at the call site,
+not in the file.
+
+WHY IT HAPPENED
+Not a runtime bug — a deliberate scoping choice. The function signature
+`detect_magenta(hsv)` receives only the HSV frame, not the frame height or a policy
+object; we kept the function pure (colour identity + area range gate) and put the
+frame-context rule — "markers may only live in the lower 30%" — at the call site in
+`_process_frame_internal`, the v4.4 engine's file evolved on Day 104. The CHANGE.md's
+"area and position thresholds" accurately describes the *deployed* behaviour; the
+committed file shows the area half.
+
+FIX (took 1 day)
+Documented here, in the journal, in the same spirit v3.7 documented its scaffold: the
+contract is complete (area gate in function, position gate at call site, verified
+together in AC2), and future readers are pointed at both files.
+
+---
+
+E0044 | v4.5 | SMALL | Found Day 103 | Fixed in 2 days | 's investigation we dropped the area floor to 200 and then 100 to "rescue" far d
+File : magenta_marker.py
+Error : area >= 100
+Terminal : 's investigation we dropped the area floor to 200 and then 100 to "rescue" far d
+
+WHAT HAPPENED
+During Day 103's investigation we dropped the area floor to 200 and then 100 to "rescue"
+far detection. The false-trigger count in the fixed 60-second scene climbed 0 → 3 → 11 →
+47, and the PARKING harness started firing on floor reflections and red-pillar shadow
+edges that drifted into the magenta band. We believed we were trading a little
+specificity for a lot of recall — the standard threshold-fiddler's bargain.
+
+WHY IT HAPPENED
+As derived in 9.1: the signal at range is absent, not weak; a lower floor does not
+recover signal, it admits noise, and the noise owns the largest-contour selection. The
+bargain was illusory — recall at long range stayed near zero while precision collapsed.
+
+FIX (took 2 days)
+Revert to the measured gate (1500 px); never re-lower. The Q→R edge of the section 6
+flowchart is the permanent guardrail.
+
+---
+
+## v4.6 - BLUE STOP-AND-GO LINE DETECTION (Day 105-107)
+
+TOTAL ERROR : 9
+SMALL : 8
+BIG : 1
+
+E0045 | v4.6 | BIG | Found Day 105 | Fixed in 3 days | rehearsal
+File : blue_stopline.py
+Error : blue_marker
+Terminal : rehearsal
+
+WHAT HAPPENED
+Day 105 rehearsal, the v4.4 `blue_marker` live for the first time on a full lap: the
+robot stopped in the middle of the straight on three separate laps, each time pausing
+the full stop-and-go count before resuming. The stop positions were identical on all
+three laps — approximately 4 m before a blue sponsor board mounted on the corridor wall,
+at head height, well above the track.
+
+WHY IT HAPPENED
+The full-frame count had no position semantics. The detector answered 'is there blue
+anywhere in the world?' and the mission layer asked 'is there a stop line ahead?'. The
+two questions diverged because the image contains blue objects at many ranges and
+heights, and a count threshold alone cannot select the floor population. The mechanism
+was geometric: a wall-mounted object at head height projects to the upper frame at any
+range, so it is indistinguishable from a floor line by colour and quantity — only by
+*where it is in the image*, which the v4.4 boolean never consulted. This is the exact
+failure v4.5's bridge predicted.
+
+INVESTIGATION (only for BIG errors)
+We froze the frames at the stop moments. The mask showed the board occupying rows
+190-260 of the frame — well above the horizon row (~265) — contributing 2,300-2,900 blue
+pixels per frame at the stop distance, against the 800 threshold. The reflection
+hypothesis: the floor's polish produced a faint board reflection at rows 340-380,
+contributing another 300-400 px — *below* the future ROI line, but the board's own
+pixels alone were nearly 3× the threshold. The debounce was confirmed correct (the
+trigger held for 40+ frames at approach speed, far beyond 3 frames). The cyan
+hypothesis: the board's hue measured 108-116 — dead inside the band; the band was not
+the issue.
+
+FIX (took 3 days)
+The ROI slice — `hsv[int(img_h * 0.7):, :]` — applied before inRange. The board's rows
+(190-260) are simply never read; the only blue the detector can ever see is below row
+336, where the line's population lives. The reflection at rows 340-380 became admissible
+— it is in the ROI — but its 300-400 px sits under the 800 threshold, and a real line's
+1,000-6,800 px swamps it. The fix is one line of code, and it converts the false-trigger
+mechanism from 'likely' to 'structurally impossible for wall objects'.
+
+---
+
+E0046 | v4.6 | SMALL | Found Day 106 | Fixed in 2 days | afternoon
+File : blue_stopline.py
+Error : True
+Terminal : afternoon
+
+WHAT HAPPENED
+Day 106 afternoon, first live test of the ROI version: the approach from 3 m showed
+`True` at ~2.7 m, then dropped to `False` for 3 frames, then returned `True` and held.
+The drop was repeatable on every approach at roughly the same range. AC3 (no more than 2
+consecutive dropped frames) failed on the first test.
+
+WHY IT HAPPENED
+The ROI boundary interacts with the line's *entry*: the line enters the frame at the top
+of the ROI, and while it is straddling the boundary, its included count is a fraction of
+its total. The count threshold (800) was calibrated on the full line well inside the
+ROI, not on the partially-entered line at the boundary. The pitch vibration (the robot's
+suspension and the servo's inertia produce ±2-3 rows of frame bounce at approach speed)
+moves the line's projection across the boundary by more than the line's own vertical
+extent at far range (the line at 2.5 m is only ~20 px tall), so the included count
+swings between ~900 px (line mostly inside the ROI) and ~650 px (line mostly outside)
+from frame to frame — a ±250 px oscillation around an 800 threshold. The detector was
+behaving exactly as written; the writing was wrong for the entry geometry.
+
+FIX (took 2 days)
+Two changes shipped together. First, the count threshold for *entry* was made
+range-aware in the only way the boolean contract allows: the mission layer's debounce
+was extended to accept a trigger that arrives as 'True within 5 frames of the first
+True' — a re-acquire window, not a pure consecutive-count. This is the minimal temporal
+fix that respects AC6 (the boolean type is unchanged). Second, and more importantly, we
+measured and accepted the entry band as part of the detector's specification: the
+trigger is *guaranteed* to be continuous only from the range at which the line's
+saturated count inside the ROI exceeds 1,100 px (about 2.2 m on the bench calibration),
+and the 0.5 m of approach before that is a 'may flicker' zone. The AC3 criterion was
+re-scoped to that guaranteed band and passed at 100%. The journal's honesty: the
+original AC3 as written (no more than 2 dropped frames from first contact) was not
+achievable with the ROI geometry and the static threshold; the re-scope was a
+specification correction, not a dodge — the *decision-relevant* band (where the stop
+timing logic operates) is continuous, and the flicker zone is before the mission layer
+needs a decision.
+
+---
+
+E0047 | v4.6 | SMALL | Found Day 107 | Fixed in 1 day | first full lap with the corrected detector
+File : blue_stopline.py
+Error : blue_marker
+Terminal : first full lap with the corrected detector
+
+WHAT HAPPENED
+Day 107, first full lap with the corrected detector: the stop-and-go rehearsal went
+perfectly for the stop, pause, and resume — and then the robot *stopped again* 1.1 s
+after resuming, on a section of track with no line at all. The second stop was at
+exactly the position where the line had been 2.5 s earlier.
+
+WHY IT HAPPENED
+The ROI's lower bound is the bottom of the frame, and the frame's bottom edge is not the
+axle line — it is *beyond* the axle, looking back at the floor the robot has already
+crossed. A line that has passed under the axle still occupies the bottom rows of the
+ROI, and its perspective-projected count grows as it recedes (the near floor is hugely
+magnified by the downward tilt). The detector's contract said 'line ahead of axle'; the
+geometry made 'line under axle' indistinguishable from 'line ahead' within the ROI. AC4
+was written precisely to catch this, and it caught it on lap one.
+
+FIX (took 1 day)
+The fix is temporal and lives at the mission layer, because the boolean contract is
+frozen: the stop-and-go controller ignores `blue_marker` entirely for 1.5 s after a
+completed stop-and-go (a cooldown window). 1.5 s at 0.6 m/s is 0.9 m — longer than the
+under-axle visibility window (measured at ~1.2 s from stop to out-of-view at 0.6 m/s),
+with margin for the resume speed. This is the same idempotency pattern v4.2's Error 3
+taught: the detector reports faithfully; the consumer decides what a report means. The
+cooldown is documented in the mission layer's state machine and is inherited by v7.x's
+real stop-and-go logic.
+
+---
+
+E0048 | v4.6 | SMALL | Found Day 107 | Fixed in 1 day | morning
+File : blue_stopline.py
+Error : blue_marker
+Terminal : morning
+
+WHAT HAPPENED
+Day 107 morning, overcast light: the magenta parking marker rehearsal suddenly showed
+the *blue* detector firing on the magenta marker. The `blue_marker` boolean went `True`
+on 6 frames while the magenta marker was 1.2 m ahead — the two lanes disagreed, and the
+mission layer's phantom-stop protection did nothing because the blue debounce was
+satisfied.
+
+WHY IT HAPPENED
+Adjacent hue bands have finite margins, and lighting can shift an object's apparent hue
+by more than the margin. The gap between blue (95-130) and magenta (135-165) is 5 hue
+units; the observed overcast shift was 5-8 units. The two bands' *config margins* were
+calibrated in daytime light and the margin did not survive a colour-temperature change.
+This is the same class of failure as v4.3's Error 5 (dusk desaturation): a threshold
+calibrated in one lighting band failing in another. The difference here is that the
+failure was *cross-detector* — one object triggering another detector's lane — which is
+worse, because the mission layer trusts lane *separation*.
+
+FIX (took 1 day)
+Two-part, both in config (no code). First, the blue band's upper edge was pulled from
+130 to 126 for the overcast session, re-opening the gap to 9 units. Second — the
+structural fix — the venue protocol from v4.3's Error 5 (a mid-session config check of
+HSV bounds against live frames) was extended to include a *band-separation check*:
+verify on a live frame that the nearest-edge separation between any two bands is at
+least 5 hue units, and if not, adjust in JSON before the run. The separation check now
+runs on every session start, alongside the existing re-tune.
+
+---
+
+E0049 | v4.6 | SMALL | Found Day 105 | Fixed in 3 days | the design review
+File : blue_stopline.py
+Error : design rejected: Alternative A — Global full-frame count (the v4.4 status quo)
+Terminal : the design review
+
+WHAT HAPPENED
+Keep the raw whole-frame `countNonZero > 800` and declare it adequate. Analysis: it is
+the shipped `blue_marker` today, and it is the failure this version exists to fix. The
+Day 105 log is unambiguous: three phantom stops, each traceable to a blue blob in the
+upper frame whose count exceeded 800 by itself (the sponsor board alone contributed
+~2,300 px). A full-frame threshold conflates two populations that never co-occur
+spatially: the floor's line and the walls' blue. Effort: zero. Robustness: 1/5. Verdict:
+rejected as the baseline that fails AC2 in the log.
+
+WHY IT HAPPENED
+Analysis: it is the shipped `blue_marker` today, and it is the failure this version
+exists to fix. Verdict: rejected as the baseline that fails AC2 in the log.
+
+FIX (took 3 days)
+replaced by Alternative C — ROI slicing (the chosen design)
+
+---
+
+E0050 | v4.6 | SMALL | Found Day 105 | Fixed in 3 days | the design review
+File : blue_stopline.py
+Error : design rejected: Alternative B — Full-frame detection plus a downstream position check
+Terminal : the design review
+
+WHAT HAPPENED
+Detect blue anywhere, then check the detected blob's row: accept only blobs whose
+centroid is below 70%. Analysis: this is the correct *semantics* — 'blue, and low' — but
+it costs the full-frame inRange (~4.5 ms) plus contour extraction to find blobs and
+centroids (~1-3 ms), blowing the 2 ms budget, and it reintroduces the contour machinery
+that the boolean contract deliberately avoids. The position check also requires
+*selecting* a blob, which raises the multiple-blob question (two blobs, one high one low
+— accept? the centroid logic gets murky). Effort: medium. Robustness: high (same as the
+chosen design). Speed: 1/5. Verdict: rejected on cost; the ROI slicing achieves the same
+semantics for a third of the price because the position constraint is applied *before*
+the expensive work instead of after.
+
+WHY IT HAPPENED
+Verdict: rejected on cost; the ROI slicing achieves the same semantics for a third of
+the price because the position constraint is applied *before* the expensive work instead
+of after.
+
+FIX (took 3 days)
+replaced by Alternative C — ROI slicing (the chosen design)
+
+---
+
+E0051 | v4.6 | SMALL | Found Day 105 | Fixed in 3 days | the design review
+File : blue_stopline.py
+Error : design rejected: Alternative D — Depth-gated detection
+Terminal : the design review
+
+WHAT HAPPENED
+Only run the blue check when the front ToF reports a range below some threshold, on the
+theory that the line is only relevant when close. Analysis: this is the same fusion
+instinct rejected in v4.3 (its Alternative E), and it fails here worse: the stop
+decision needs the line's *continuous* presence from 3 m down to the axle, and gating on
+the ToF would require the ToF to see the floor reliably — which a forward-mounted ToF
+aimed at a flat floor does only at close range and with heavy angle-of-incidence noise.
+Worse, it makes the stop detector's availability a function of a different sensor's
+health: if the ToF glitches, the stop trigger silently vanishes. Effort: low.
+Robustness: 2/5. Verdict: rejected — the camera sees the floor better than the ToF does,
+and the whole point of the stop detector is that it stands alone.
+
+WHY IT HAPPENED
+Analysis: this is the same fusion instinct rejected in v4.3 (its Alternative E), and it
+fails here worse: the stop decision needs the line's *continuous* presence from 3 m down
+to the axle, and gating on the ToF would require the ToF to see the floor reliably —
+which a forward-mounted ToF aimed at a flat floor does only at close range and with
+heavy angle-of-incidence noise. Verdict: rejected — the camera sees the floor better
+than the ToF does, and the whole point of the stop detector is that it stands alone.
+
+FIX (took 3 days)
+replaced by Alternative C — ROI slicing (the chosen design)
+
+---
+
+E0052 | v4.6 | SMALL | Found Day 105 | Fixed in 3 days | the design review
+File : blue_stopline.py
+Error : design rejected: Alternative E — Template or edge-based line detection
+Terminal : the design review
+
+WHAT HAPPENED
+Detect the line as a horizontal edge pair (a band whose top and bottom edges are strong
+hue transitions) using Sobel or Hough on the ROI. Analysis: this would give *geometry
+validation* — 'a blue band, wider than tall, with edges' — which is strictly more
+information than a count. It would also catch a blue band even when the band's interior
+is patchily saturated. But it costs a gradient pass over the ROI plus edge logic (~4-6
+ms), misses the 2 ms budget, and — the killer — it needs a width-vs-height test that the
+ROI alone cannot supply without blob extraction, because the count knows nothing about
+the band's shape. The version's lesson is about position, and the count threshold
+already separates the band from specks by two orders of magnitude; edge validation is
+the v8.x upgrade path if the venue's blue paint is ever patchy. Effort: high.
+Robustness: medium-high. Speed: 1/5. Verdict: deferred, not rejected — logged as the
+documented upgrade path.
+
+WHY IT HAPPENED
+But it costs a gradient pass over the ROI plus edge logic (~4-6 ms), misses the 2 ms
+budget, and — the killer — it needs a width-vs-height test that the ROI alone cannot
+supply without blob extraction, because the count knows nothing about the band's shape.
+Verdict: deferred, not rejected — logged as the documented upgrade path.
+
+FIX (took 3 days)
+replaced by Alternative C — ROI slicing (the chosen design)
+
+---
+
+E0053 | v4.6 | SMALL | Found Day 105 | Fixed in 3 days | the design review
+File : blue_stopline.py
+Error : design rejected: Alternative F — Adaptive thresholding on the count
+Terminal : the design review
+
+WHAT HAPPENED
+Make the 800 threshold adaptive (e.g., track the running maximum count per lap and
+trigger at a fraction of it). Analysis: adaptivity is tempting because the venue light
+changes, but it turns a hard-coded, testable threshold into a stateful estimator with
+its own failure modes (a phantom peak poisons the baseline; a genuinely dim line after a
+bright wall section under-triggers). The config-driven static threshold plus the venue
+protocol (re-tune in JSON on session change) already handles the lighting band, as it
+did for red in v4.3's Error 5. Effort: medium. Robustness: 2/5 (state). Speed: 4/5.
+Verdict: rejected — statelessness is a feature here.
+
+WHY IT HAPPENED
+Analysis: adaptivity is tempting because the venue light changes, but it turns a
+hard-coded, testable threshold into a stateful estimator with its own failure modes (a
+phantom peak poisons the baseline; a genuinely dim line after a bright wall section
+under-triggers). Verdict: rejected — statelessness is a feature here.
+
+FIX (took 3 days)
+replaced by Alternative C — ROI slicing (the chosen design)
+
+---
+
+## v4.7 - PILLAR DISTANCE FROM PIXEL HEIGHT (Day 91-109)
+
+TOTAL ERROR : 7
+SMALL : 6
+BIG : 1
+
+E0054 | v4.7 | BIG | Found Day 109 | Fixed in 1 day | practice
+File : pillar_dist.py
+Error : 150
+Terminal : practice
+
+WHAT HAPPENED
+Day 109, the ramp. We drove the robot up the practice ramp (measured 8.2° maximum
+incline, right at the WRO-style limit) with a red pillar staked at a true 1.0 m ground
+distance from the camera. The HUD printed "1350mm". Downhill it printed "880mm". Flat
+ground, same physical distance: "1010mm". A 350 mm spread across the same true distance,
+varying smoothly with grade. This was not noise — it was a clean function of slope
+angle, and the robot's avoidance logic would have dodged 350 mm too early uphill and 120
+mm too late downhill. At 0.9 m/s that is 389 ms and 133 ms of mistiming.
+
+WHY IT HAPPENED
+The inline v4.4 formula `(img_h × 150)/h` is the α = 0 solution of a first-principles
+model that has a pose term; we shipped the special case and never stated its domain. On
+any nonzero pitch the measured pixel height is not `f·H/D` but `f·H/(D·cos α − H·sin
+α)`, so the flat formula returns `D·cos α − H·sin α` — an estimate that drifts by
+roughly `D·(1 − cos α) + H·sin α` ≈ 1000×0.010 + 150×0.139 ≈ 31 mm at 8° if you only
+used the cos term, and much more when the *observed* symptom is driven by the
+pixel-height collapse feeding a wrong model. The mechanism is physical: the rigid camera
+pitches with the chassis, the pillar's projection shortens, the height-based estimator
+reads "shorter = farther", and it overestimates uphill and underestimates downhill.
+
+INVESTIGATION (only for BIG errors)
+We logged `h_px` and the MPU6050 pitch simultaneously for a flat run and a ramp run.
+Flat: h_px ≈ 71 px at 1.0 m → `raw = 480×150/71 ≈ 1014 mm`, pitch ≈ 0.5°, output ≈ 1013
+mm. Ramp up: h_px had dropped to 53 px → `raw = 480×150/53 ≈ 1358 mm`, pitch ≈ +7.9°.
+The relationship was mechanical: `1358 ≈ 1014/0.989 + 150×0.139 = 1025 + 21 = 1046`...
+no, that is the *exact* formula's expectation for a *level* 1.0 m target viewed through
+an 8° tilt, which predicts raw ≈ 1000×0.990 − 150×0.139 ≈ 969 mm — not 1358. So the
+geometry alone did not explain 1358. We re-measured the true distance with a laser tape:
+the pillar was at 1.0 m *ground* distance, but the robot's camera sits ~150 mm above the
+axle line, and on the 8° ramp the *line-of-sight* distance from camera to pillar base is
+`1000/cos(8°) ≈ 1010 mm`; the *projected height* the camera sees corresponds to a
+virtual target whose apparent size is set by the foreshortening of C4. Two compounding
+effects — the projection foreshortening (raw grows because h_px shrank) and the
+line-of-sight-vs-ground length change — pushed raw to 1358. The single biggest
+contributor, measured by co-variation, was the *pixel height* change: 71 → 53 px, a 25%
+drop, exactly what C4's `D·cos α − H·sin α` predicts for α = 8°.
+
+FIX (took 1 day)
+The fix is the module's final line: `return raw * math.cos(pitch_rad)`. We chose the
+cos-approximation (see 5.5 for the honest comparison with the exact `raw/cos α + H·tan
+α`). On the re-test, ramp up at 8.2°: raw 1358 → 1358×0.990 = 1344 mm... which is still
+wrong by 344 mm! The cos correction alone recovers only the ~31 mm foreshortening term;
+the *rest* of the 350 mm error was not pitch-geometry at all. **And this is where we
+almost made a catastrophic mistake.** See E3 — our first "fix" (dividing by cos) made
+the number *worse*, and our investigation of *why* led us to the true dominant cause:
+**the bounding box had been clipped by the frame edge.** On the 8° ramp, the near
+pillar's base is physically close and the foreshortened image puts the pillar's bottom
+*below the bottom edge* of the 480-line frame — the detector measured only the visible
+upper portion, so `bbox_height_px` was not the pillar height at all. That is E2. The cos
+correction is necessary but not sufficient; the gating fix is the sufficient part.
+
+---
+
+E0055 | v4.7 | SMALL | Found Day 109 | Fixed in 1 day | the E1 investigation we dumped frames
+File : pillar_dist.py
+Error : cv2.line
+Terminal : the E1 investigation we dumped frames
+
+WHAT HAPPENED
+During the E1 investigation we dumped frames and overlaid the bounding rect. On the
+ramp, the red box touched the very bottom row of the image (y + h ≈ 480). The measured
+53 px was the pillar's *visible* height, not its *true* projected height (which we
+estimated at ~71 px from the flat-ground ratio scaled by the geometry).
+
+WHY IT HAPPENED
+Mechanical + optical: (a) the camera is mounted with a fixed downward pitch in its
+bracket, tuned for flat-ground driving so that the avoidance-relevant ground band (0.5–3
+m) fills the frame; (b) on an up-ramp the robot pitches back, which *reduces* the
+apparent downward look of the camera and pushes near-field features below the frame; (c)
+`boundingRect` clips at the image boundary by construction — a contour touching the edge
+returns a box that stops at that edge. The detector cannot see what the lens no longer
+sees, and the height estimator then violates its own C2 validity domain (it assumed a
+full pillar projection) while returning a confident-looking number.
+
+FIX (took 1 day)
+A validity gate at the call site: before calling `pillar_distance_mm`, require the
+bounding box to lie fully inside the frame with a safety margin (we used 10 px at top
+and bottom: `y >= 10` and `y + h <= img_h - 10`). If violated, we pass 0 as the height
+so the module returns the 9999.0 sentinel. This converted a confident wrong number (1358
+mm) into an honest "unknown" — and the mission layer then treats 9999.0 as "hold the
+last good range" (which v4.8's keep-last tracker will mechanise).
+
+---
+
+E0056 | v4.7 | SMALL | Found Day 109 | Fixed in 1 day | E1's root-cause meeting
+File : pillar_dist.py
+Error : return raw / math.cos(pitch_rad)
+Terminal : E1's root-cause meeting
+
+WHAT HAPPENED
+After E1's root-cause meeting, our first implementation was `return raw /
+math.cos(pitch_rad)` — the exact formula's cos term, which we had just derived. Flat
+bench: fine. On the ramp: 1358/0.990 = 1372 mm — *worse* by 14 mm. We stared at the
+numbers for two hours convinced the physics was wrong. **Initial hypothesis.** "The
+derivation is wrong. α must be measured relative to something else. Or the IMU sign
+convention is flipped."
+
+WHY IT HAPPENED
+Two compounding conceptual errors. (1) Sign convention: on an up-ramp the camera pitches
+nose-up; we defined α positive-nose-up in the code but had derived with α
+positive-nose-down on the whiteboard — the cos of an angle is invariant to that sign
+flip, so that wasn't the arithmetic bug; the real confusion was that the *exact* inverse
+`raw/cos α + H·tan α` and the *shipped* approximation `raw·cos α` are opposite in form,
+and without the clipping gate we were fitting the approximation to corrupted data. (2)
+Reference-frame sloppiness: we were mixing "ground distance" (what the mission wants)
+with "line-of-sight distance" (what a tilted camera measures) as if they were the same
+scalar. On the 5° bench they differ by `1000/cos 5° − 1000 ≈ 4 mm`; on the 8.2° ramp
+they differ by ~10 mm — small, but it made our model-vs-bench comparison look like a bug
+when it was actually a unit disagreement.
+
+FIX (took 1 day)
+We chose the cos-approximation, with the signed nose-up convention, after the bench
+confirmed that at |α| ≤ 8.2° the residual between the two forms is ≤ 41 mm at 1 m (see
+5.5) — inside budget — and, critically, after adding the E2 gate so that the correction
+is never applied to clipped data. And we adopted a rule that killed this class of bug:
+**every distance quantity in the code must state whether it is line-of-sight or
+ground-projected**, and the avoidance layer uses ground-projected.
+
+---
+
+E0057 | v4.7 | SMALL | Found Day 109 | Fixed in 1 day | day 111
+File : pillar_dist.py
+Error : cos(0.9°) ≈ 0.9999
+Terminal : day 111
+
+WHAT HAPPENED
+On day 111, during A3 re-verification, we noticed the HUD distance on flat-but-scuffed
+floor flickered ±30 mm at roughly 8 Hz even with a stationary pillar. The mean was
+correct; the *variance* was new.
+
+WHY IT HAPPENED
+We had conflated two noise sources. The pitch term's contribution at ±0.9° is genuinely
+negligible (0.02%). The ±1 px contour jitter — HSV threshold cell noise on
+shadow-scuffed red pillars — was the ±30 mm, and it had existed since v4.3; we had never
+looked hard enough to see it because the number was always round-ish before. This is the
+"verify the easy variable and it frames the hard one" pattern.
+
+FIX (took 1 day)
+None in the module — the module is correctly doing its tiny job. The freeze the pitch
+per frame (already done) and, for the display, smooth with a one-frame exponential
+`smoothed = 0.7*new + 0.3*old` in the HUD only, keeping the raw estimate untouched for
+the mission layer (v4.8's tracker will do proper temporal filtering). Documented as
+budget term D5.
+
+---
+
+E0058 | v4.7 | SMALL | Found Day 91 | Fixed in 19 days | the design review
+File : pillar_dist.py
+Error : design rejected: Alternative A — ToF direct ranging with data association
+Terminal : the design review
+
+WHAT HAPPENED
+Use the forward VL53L1X as the range source and associate its 100 Hz stream to the
+camera detections. We estimated the engineering cost as high: we would need (a) a
+time-stamping discipline across the Pi/ESP32 boundary that the CRC8 100 Hz protocol did
+not provide, (b) a statistical association model to decide whether the ToF reading came
+from the pillar or from the wall/floor behind or below it, and (c) a mechanical test rig
+to characterise the 27° beam's response to a narrow target at every distance. The
+fundamental objection was C5: even with perfect engineering, the *physics* of a 50 mm
+target in a 27° cone makes the association ambiguous a meaningful fraction of the time.
+We rejected A as the primary range source. It remains valuable as a binary confirmation
+gate (R4).
+
+WHY IT HAPPENED
+We rejected A as the primary range source.
+
+FIX (took 19 days)
+replaced by Alternative B — Stereo vision
+
+---
+
+E0059 | v4.7 | SMALL | Found Day 91 | Fixed in 19 days | the design review
+File : pillar_dist.py
+Error : design rejected: Alternative B — Stereo vision
+Terminal : the design review
+
+WHAT HAPPENED
+Two forward cameras would give true disparity-based depth. We rejected it on four
+grounds at once: the WRO envelope has no clean second mount point; the Pi 4B at
+640×480×30 with a second `cvtColor`/rectify/disparity pipeline would roughly double the
+per-frame CPU cost (11 ms → ~22 ms) at a time when the core is also running control and
+serial I/O; stereo needs calibration targets and rectification that a three-day sprint
+cannot deliver to ±100 mm at 1.5 m; and power draw rises. Stereo is excellent in the
+abstract and wrong for this budget. **Alternative C — height-based monocular ranging
+with IMU pose compensation (chosen).** This reuses v4.3's proven detection, reuses
+v4.4's bounding box, adds one IMU value, and costs under 5 µs per call. Its physics are
+fully derivable (C4), its constants are measurable (R1), and its failure modes are
+understandable. Its weaknesses — quantization at distance, clipping, contour noise — are
+the ones we already know how to reason about.
+
+WHY IT HAPPENED
+We rejected it on four grounds at once: the WRO envelope has no clean second mount
+point; the Pi 4B at 640×480×30 with a second `cvtColor`/rectify/disparity pipeline would
+roughly double the per-frame CPU cost (11 ms → ~22 ms) at a time when the core is also
+running control and serial I/O; stereo needs calibration targets and rectification that
+a three-day sprint cannot deliver to ±100 mm at 1.5 m; and power draw rises. Its physics
+are fully derivable (C4), its constants are measurable (R1), and its failure modes are
+understandable.
+
+FIX (took 19 days)
+replaced by Alternative B — Stereo vision
+
+---
+
+E0060 | v4.7 | SMALL | Found Day 91 | Fixed in 19 days | the design review
+File : pillar_dist.py
+Error : design rejected: Alternative E — fixed-distance avoidance, no ranging at all
+Terminal : the design review
+
+WHAT HAPPENED
+Trigger the dodge at a fixed lateral-crossing event (e.g., when the pillar's center_x
+crosses a threshold). We rejected it because the crossing event depends on approach
+angle and track width; on a 1.2 m wide corridor the lateral-crossing time varies by
+hundreds of milliseconds run to run. It is the cheapest option and the worst.
+
+WHY IT HAPPENED
+We rejected it because the crossing event depends on approach angle and track width; on
+a 1.2 m wide corridor the lateral-crossing time varies by hundreds of milliseconds run
+to run.
+
+FIX (took 19 days)
+replaced by Alternative B — Stereo vision
+
+---
+
+## v4.8 - PILLAR TRACKING: THE WORLD EXISTS BETWEEN FRAMES (Day 1-111)
+
+TOTAL ERROR : 7
+SMALL : 6
+BIG : 1
+
+E0061 | v4.8 | BIG | Found Day 111 | Fixed in 1 day | the log showed the mission's `avoidance_offset` flipping `0.6 → 0.0 → 0.6` at th
+File : pillar_track.py
+Error : avoidance_offset
+Terminal : the log showed the mission's `avoidance_offset` flipping `0.6 → 0.0 → 0.6` at th
+
+WHAT HAPPENED
+During every 90° corner at mission speed on Day 111, the log showed the mission's
+`avoidance_offset` flipping `0.6 → 0.0 → 0.6` at the 100 Hz control cadence for the
+duration of the turn. The red/green pillar was present in `latest_perception` on the
+straightaway, then absent for 300–500 ms in the corner, then present again. The robot
+visibly steered back toward the pillar in the middle of the very corner it was trying to
+avoid, then snapped back. On one run this caused a ~90 mm cross-track excursion at the
+apex — measured from the `crosstrack_error_mm` log in Layer 5 — and we saw the robot
+brush the corridor edge marker.
+
+WHY IT HAPPENED
+The failure was structural, not accidental. The perception layer is a *sampler*: it
+reports what the camera sees *now*. The mission layer is a *state machine*: it acts on
+what it believes about the world. Between a sampler and a state machine there must be a
+*memory*, and v4.4–v4.7 had none. When the robot turned, the camera yaw rate moved the
+pillar's bearing past the FOV half-angle (31.1° each side of boresight). The pillar then
+legitimately produced no pixels — the photons weren't hitting the sensor — so
+`_find_largest_contour` returned `None`, `latest_perception["red_pillar"]` became
+`None`, and `update_state` read `red_pillar is not None` as `False`, zeroing the offset.
+The mechanism is: **ego-motion moves the field of view faster than the mission's
+belief-update can tolerate; without a temporal prior, absence of evidence is interpreted
+as evidence of absence.** That last sentence is the whole bug, and it is why the fix is
+not a detection fix.
+
+INVESTIGATION (only for BIG errors)
+We instrumented rather than guessed. We timestamped every `process_frame()` read in
+`main.py` and every perception write in the camera thread, and logged `frame_processed`
+and `camera_ok` alongside `avoidance_offset` and the raw `front_mm`. Three facts came
+out of the log. First, `frame_processed` was `True` for the *entire* corner — the camera
+was delivering frames at 30 FPS, so hypothesis 1 was dead. Second, the HSV masks were
+producing *zero* red/green contour output during the gap even though the pillar was
+within 1.5 m — but the masks were also producing zero output for *every* color including
+blue, which ruled out a color-specific threshold failure and pointed at geometry, not
+lighting; hypothesis 2 died. Third, and decisively, the gap start and end correlated
+exactly with the robot's yaw rate: we overlaid `front_mm` and the Layer 5 heading, and
+the disappearance happened precisely when `ω = v/R ≈ 3.6 rad/s` swept the pillar's
+bearing out past the 62.2° camera FOV edge. The pillar wasn't gone; it was **outside the
+sensor**, and our architecture had no mechanism to remember that it existed.
+
+FIX (took 1 day)
+We built `PillarTracker` (this version's entire code change): a two-float state machine
+that keeps `self.last` and `self.last_seen`, adopts any non-None detection, and clears
+the hold exactly 500 ms after the last real detection. The mission now sees a continuous
+red/green pillar observation through the whole corner and for up to 500 ms of occlusion.
+Wired in as a pass-through on the perception→mission seam (Section 7).
+
+---
+
+E0062 | v4.8 | SMALL | Found Day 111 | Fixed in 1 day | the robot completed a pillar pass
+File : pillar_track.py
+Error : cooldown=1.5
+Terminal : the robot completed a pillar pass
+
+WHAT HAPPENED
+With `cooldown=1.5`, the robot completed a pillar pass, drove 3 m down the straight, and
+*still* reported a red pillar in the mission — the `avoidance_offset` stayed at `-0.6`
+for a full 1.5 s after the pillar was behind it. On the straights this meant the robot
+ran offset to the centerline for 1.5 s / ~100 cycles after every pillar, and on lap two
+of the mission it nearly shoved the car toward the opposite wall. *Initial hypothesis.*
+We initially wrote it off as a Layer 6 state bug — we were suspicious of the
+`SurpriseRuleAdapter`. That guess was wrong, but the *shape* of the guess mattered: we
+assumed the bug was downstream of the tracker when it was actually *in* the tracker's
+tuning.
+
+WHY IT HAPPENED
+The cooldown is a *physics-derived* number (worst occlusion ≈ 0.46 s) but we had tuned
+it by *feel* (1.5 s ≈ "long enough"). The mismatch between a geometry-derived
+requirement and an intuition-picked constant is the mechanism: a cooldown is a bet on
+how long the *world can hide a pillar* while we still care about it, and the correct
+duration is bounded above by "how long until acting on the pillar is wrong" and below by
+"how long the pillar can genuinely hide." 1.5 s violates the upper bound: 3 m past the
+pillar at 1.8 m/s, the pillar is no longer an obstacle to avoid, so holding it is
+steering at a ghost.
+
+FIX (took 1 day)
+`cooldown=0.5`, derived in Section 5.1 (≥ measured 0.46 s max, ≤ the time-to-pass on the
+straight). The regression test (Error 1's) catches any future regression because it
+asserts the offset returns to 0.0 within 500 ms of the pillar passing the robot's widest
+point.
+
+---
+
+E0063 | v4.8 | SMALL | Found Day 111 | Fixed in 1 day | this one never shipped
+File : pillar_track.py
+Error : while det is None: sleep(0.1)
+Terminal : this one never shipped
+
+WHAT HAPPENED
+None — this one never shipped. But the design review caught the attempt, and it is worth
+recording because it was a genuinely plausible "easy fix" and it would have been a
+live-fire failure. *Initial design.* One of us proposed: when the mission sees `None`
+for a pillar that was recently present, *busy-wait / sleep 100 ms and re-read the
+perception dict*, on the theory that the pillar would reappear shortly. It is a natural
+thought — "give the sensor time."
+
+WHY IT HAPPENED
+The proposal inverted the architecture: it tried to make the *sampling layer*
+synchronous to fix a *temporal belief* problem, adding latency to the hot loop instead
+of adding state to the belief layer. Blocking to "wait for data" is the anti-pattern
+that all our threading work in v4.x (v4.4's async camera, v4.1's non-blocking sensor
+reads) was built to avoid.
+
+FIX (took 1 day)
+We wrote the tracker — O(1), non-blocking, no sleeps — which achieves the same "wait for
+the pillar to come back" *without blocking*, by remembering it. The lesson turned into a
+hard rule: **never block the control loop to await data; always add state that bridges
+the data gap.** This is now checked in every design review: any `time.sleep` in the
+mission/control path is rejected.
+
+---
+
+E0064 | v4.8 | SMALL | Found Day 111 | Fixed in 1 day | Red and green pillars both steered
+File : pillar_track.py
+Error : SurpriseRuleAdapter
+Terminal : Red and green pillars both steered
+
+WHAT HAPPENED
+Red and green pillars both steered the robot LEFT on the first bench test — the red
+pillar produced a green-style avoidance. *Initial hypothesis.* We suspected the
+`SurpriseRuleAdapter` direction logic (SIGN_LOGIC) was inverted. Wrong guess.
+
+WHY IT HAPPENED
+Aliasing — two names bound to one object — in Python, two separate `PillarTracker()`
+calls are required. The state machine had *one* memory cell where the design required
+*two* (one per color). Identity collision: red's detection was stamped into the same
+`self.last` that green read.
+
+FIX (took 1 day)
+Two instances: `red_tracker = PillarTracker(); green_tracker = PillarTracker()`.
+Verified: red detection → red avoidance only, and the two no longer cross-talk.
+
+---
+
+E0065 | v4.8 | SMALL | Found Day 1 | Fixed in 111 days | the design review
+File : pillar_track.py
+Error : design rejected: Alternative A — Do nothing (stateless detection, v4.7 behavior)
+Terminal : the design review
+
+WHAT HAPPENED
+Zero code. Honest analysis: during the 380–460 ms occlusion the mission sees no pillar,
+`avoidance_offset` drops to 0, the Stanley controller in layer 10 steers back to
+centerline, and 30–46 frames later the pillar reappears and the offset snaps back to
+±0.6. Net effect: a mid-turn correction away from centerline exactly when we most need
+to hold the line. Measured on Day 111: the robot cut the corner apex by up to ~90 mm of
+cross-track excursion during these flickers — enough to flirt with the 600–800 mm
+corridor edge at 1.8 m/s. Rejected.
+
+WHY IT HAPPENED
+Rejected.
+
+FIX (took 111 days)
+replaced by Alternative C — Keep-last + fixed cooldown expiry (chosen)
+
+---
+
+E0066 | v4.8 | SMALL | Found Day 1 | Fixed in 111 days | the design review
+File : pillar_track.py
+Error : design rejected: Alternative B — Keep-last forever (no cooldown)
+Terminal : the design review
+
+WHAT HAPPENED
+Even simpler code, one line: never clear `self.last`. Fatal flaw: stale forever. After
+passing the pillar, the mission would avoid a ghost for the rest of the lap, and the
+STOP state machine would never see a clean field. Rejected on the C3 memory-hygiene
+argument: the world *does* revert.
+
+WHY IT HAPPENED
+Rejected on the C3 memory-hygiene argument: the world *does* revert.
+
+FIX (took 111 days)
+replaced by Alternative C — Keep-last + fixed cooldown expiry (chosen)
+
+---
+
+E0067 | v4.8 | SMALL | Found Day 1 | Fixed in 111 days | the design review
+File : pillar_track.py
+Error : design rejected: Alternative E — ToF-dominated short-range handoff
+Terminal : the design review
+
+WHAT HAPPENED
+When the camera loses the pillar, let the front VL53L1X claim "obstacle at range X" and
+keep the avoidance engaged purely on range. Rejected on the C4 argument: the front ToF
+sees the *wall* at the apex of a turn too, and it cannot distinguish a red pillar from a
+green pillar or from the corridor wall. It would keep the avoidance engaged but with the
+wrong *direction* information, and it would false-trigger on every corner wall. The
+right sensor for *identity* is the camera; the ToF stays what it is — a range
+cross-check.
+
+WHY IT HAPPENED
+Rejected on the C4 argument: the front ToF sees the *wall* at the apex of a turn too,
+and it cannot distinguish a red pillar from a green pillar or from the corridor wall.
+
+FIX (took 111 days)
+replaced by Alternative C — Keep-last + fixed cooldown expiry (chosen)
+
+---
+
+## v4.9 - VISUAL ODOMETRY PROTOTYPE (Day 115-116)
+
+TOTAL ERROR : 3
+SMALL : 2
+BIG : 1
+
+E0068 | v4.9 | BIG | Found Day 115 | Fixed in 2 days | wiring the first feature-tracking prototype into
+File : visual_odom.py
+Error : getTickCount
+Terminal : wiring the first feature-tracking prototype into
+
+WHAT HAPPENED
+After wiring the first feature-tracking prototype into the vision thread — dense
+quality-based corner detection plus LK at the native 640×480 — the entire vision thread
+cadence collapsed. `getTickCount` measurements and the frame-broker queue depth both
+confirmed 5 FPS (200 ms per frame). Two secondary symptoms followed from the first: the
+HSV pillar pipeline's event cadence degraded noticeably (the broker starved its second
+consumer), and the motion estimates arrived so slowly that a 1.5 m/s robot moved 300 mm
+between successive estimates — far enough that the numbers were not merely late, they
+were *meaningless*.
+
+WHY IT HAPPENED
+The dense corner detector computes a corner-quality score for every pixel (a
+gradient-derived eigenvalue approximation) and then performs local non-maximum
+suppression. That is an O(pixels) pass with a heavy inner loop: ~30 ms at 640×480 on a
+single A72 core, plus ~8 ms of conversion, plus ~10 ms of LK on 500 corners — 48 ms of
+intrinsic work against a 33.3 ms budget before adding contention. The 5 FPS number is
+then explained by a **positive feedback loop**: at 200 ms/frame the robot travels 300 mm
+between frames, which is beyond what even the 3-level pyramid can bridge for most
+features (5.1.1); correspondences fail; lost features trigger re-detection; re-detection
+is the most expensive stage; the pipeline gets *slower*, which increases per-frame
+displacement, which breaks more correspondences. The measured 5 FPS was not a
+steady-state throughput — it was the bottom of a spiral that the algorithm itself pushed
+down.
+
+INVESTIGATION (only for BIG errors)
+We stopped guessing and profiled per stage with `cv2.getTickCount` deltas over 500
+frames, running the vision thread alone, then with the serial loop, then with the HSV
+pipeline — three orthogonal dimensions to separate interference from intrinsic cost. The
+results were unambiguous and surprised us on all four hypotheses: - Detector
+(quality-map corner detection at 640×480): ~30 ms. - LK on the ~500 returned corners:
+~10 ms. - Grayscale conversion + everything else: ~8 ms. - Intrinsic per-frame compute:
+~48 ms. With GStreamer bursts and scheduler contention under the existing ~2 cores of
+load, wall-clock frame time reached 200 ms. The platform was *not* the problem; the
+detector's per-pixel quality-map pass at 307,200 pixels was. - Feature count:
+`maxCorners=500` returned ~480 corners and LK tracked ~450 — not excessive, but
+irrelevant, because the detector's cost was in the quality map, not the feature count.
+
+FIX (took 2 days)
+Two changes, applied together (the order mattered, see 9.4): 1. Downscale to 320×240 —
+4× fewer pixels for every per-pixel stage. 2. Swap the dense quality-map detector for
+FAST (`threshold=20`), whose early-exit circle test costs ~10× less per pixel and pays
+the most at low resolution. 3. Run the whole thing in a dedicated background thread
+writing to a lock-protected slot, so no vision stall can ever block the serial loop or
+the state machine. Post-fix measurement: median ~7 ms/frame compute, 30 FPS sustained,
+~0.6 core, CPU total 71% (Section 10). The same method that measured the failure proved
+the fix.
+
+---
+
+E0069 | v4.9 | SMALL | Found Day 116 | Fixed in 1 day | log
+File : visual_odom.py
+Error : track_motion
+Terminal : log
+
+WHAT HAPPENED
+On the first forward-drive test (robot rolling straight down the corridor at ~0.5 m/s),
+`track_motion` returned values near zero the entire run. The team's immediate reaction —
+recorded in the Day 116 log — was that the fix in 9.1 had silently broken the signal.
+
+WHY IT HAPPENED
+Not a bug in code — a bug in *expectation*. We had half internalized the "pure-ToF pose
+is blind along-track" motivation and expected the tracker to answer along-track
+progress, when the mean-flow statistic is built to answer lateral motion. The model
+(5.1.7) had been written down but not yet *believed*.
+
+FIX (took 1 day)
+None to the code. We rewrote the Day 116 conclusion into a one-line discipline: "know
+what your statistic measures before you blame it for not measuring something else." The
+forward-drive near-zero result was logged as expected behavior and became part of the
+v5.x handoff rationale (longitudinal position is dead reckoning's job; vision's
+expansion rate is a future cross-check).
+
+---
+
+E0070 | v4.9 | SMALL | Found Day 116 | Fixed in 1 day | an early integration of the LK
+File : visual_odom.py
+Error : track_motion
+Terminal : an early integration of the LK
+
+WHAT HAPPENED
+During an early integration of the LK path, `track_motion` returned `0.0` for every
+frame even on the lateral push test, while `kp1` was healthy (hundreds of keypoints) and
+the guards were not triggering (we added debug prints before accepting the result).
+
+WHY IT HAPPENED
+OpenCV's point-vector convention is shape `(N, 1, 2)` for a vector of 2D points; `(N,
+2)` is interpreted differently and the mismatch propagates silently into the status
+vector. We had copied the reshape from memory instead of from the OpenCV docs, and the
+API's tolerance of the wrong shape (it *runs* rather than raising) hid the bug behind a
+plausible result.
+
+FIX (took 1 day)
+The single-character fix `reshape(-1, 1, 2)`, plus a shape assert in the debug harness
+(`assert pts1.shape[2] == 2`), which has caught nothing since because the contract is
+now pinned by the assert.
+
+---
+
+## THE ENGINEERING DOCUMENTATION
+
+The errors this phase records that come from ENGINEERING_
+DOCUMENTATION.md and ENGINEERING_PARAMETER_JUSTIFICATION.md,
+not from a CHANGE.md chapter. The docs do not log days, so
+Found Day is n/a and FIX carries no day count.
+
+TOTAL ERROR : 2
+SMALL : 2
+BIG : 0
+
+E0071 | v4 | SMALL | Found Day n/a | Fixed in n/a | the engineering documentation
+File : utils/calibrate_hsv.py, layers/layer4_perception.py
+Error : the HSV tuner writes to an unused config key (O-1)
+Terminal : the engineering documentation
+
+WHAT HAPPENED
+Known limitation (open item O-1): the HSV tuner (utils/calibrate_hsv.py) currently
+writes to camera.hsv_tuned, while the perception layer reads hsv_red1/hsv_green/... A
+tune session therefore does not yet modify runtime thresholds.
+
+WHY IT HAPPENED
+The tuner's output key and the perception layer's read keys were never wired together.
+
+FIX
+The fix is a 5-line change (write to the per-color keys the perception layer reads) and
+is scheduled before venue practice.
+
+---
+
+E0072 | v4 | SMALL | Found Day n/a | Fixed in n/a | the engineering documentation
+File : layers/layer4_perception.py
+Error : the missing HSV key could crash the race loop
+Terminal : the engineering documentation
+
+WHAT HAPPENED
+A missing hsv_* block in the config could crash the race loop at startup.
+
+WHY IT HAPPENED
+No defensive default for config keys in the perception layer.
+
+FIX
+Every hsv_* block in the config has a fallback value in code (layer4_perception.py), so
+a missing key can never crash the race loop.
+
+---
