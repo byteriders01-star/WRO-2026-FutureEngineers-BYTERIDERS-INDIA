@@ -1,0 +1,1866 @@
+PHASE 1 - BOOT AND SSH - ERROR CATALOG
+
+ERROR TOTAL : 53
+SMALL : 42
+BIG : 11
+TOTAL ERROR : 615
+PERCENTAGE : 8.62%
+
+------------------------------------------------------------
+HOW TO READ THIS FILE
+1. Every error is real. It was parsed from the CHANGE.md history chapter of
+   the version that hit it (other/history/vX.Y/CHANGE.md, section 9). Nothing
+   here was invented to fill a quota.
+2. Errors are grouped by version, in the order the versions happened.
+3. E-numbers restart at E0001 for each phase file.
+4. SMALL errors are one-line fixes; BIG errors needed an investigation.
+5. 'Found Day N' is the day the error was first observed, as recorded in the
+   chapter. 'Fixed in N days' is the time between that day and the last
+   recorded day of the version.
+6. The FIX section is the fix exactly as the chapter documented it.
+------------------------------------------------------------
+ANATOMY OF ONE ERROR ENTRY
+
+E0001 | v1.0 | SMALL or BIG | Found Day N | Fixed in N days | Terminal
+File : the file or files involved, as named in the chapter
+Error : the error text, quoted from the chapter
+Terminal : where the error was observed, from the chapter
+
+WHAT HAPPENED
+What we saw - the symptom, from the chapter's Symptom section.
+
+WHY IT HAPPENED
+The root cause, from the chapter's Root cause section.
+
+INVESTIGATION (only for BIG errors)
+How we found it - the chapter's Investigation section.
+
+FIX (took N days)
+The fix, from the chapter's Fix section.
+
+------------------------------------------------------------
+THE ERROR CATALOG
+
+## v1.0 - PROJECT SKELETON — PI 4B + ESP32-S3 SPLIT (Day 0-2)
+
+TOTAL ERROR : 6
+SMALL : 5
+BIG : 1
+
+E0001 | v1.0 | BIG | Found Day 2 | Fixed in 1 day | after creating the repo structure
+File : skeleton_main.py
+Error : ModuleNotFoundError: No module named 'layers'
+Terminal : after creating the repo structure
+
+WHAT HAPPENED
+On Day 2, after creating the repo structure, we launched the entry script through our
+launcher — a shell wrapper that `cd`'d to the robot home directory and invoked the
+Python module by `-m` form. The interpreter aborted before printing anything:
+`ModuleNotFoundError: No module named 'layers'`, with the traceback pointing at the
+`import layers` line in our working-tree main.py. The crash was total and immediate:
+exit code 1, zero output. The same file, run as `python3 main.py` from inside the
+project root, worked fine. That split behavior — works from one directory, dies from
+another — was the most important clue we almost missed.
+
+WHY IT HAPPENED
+Python resolves imports by walking `sys.path` in order: `sys.path[0]` first, then
+`PYTHONPATH` entries, then the standard library, then site-packages. The crucial detail
+is what occupies `sys.path[0]`, and it is decided by *how the interpreter was launched*,
+not by where the code lives. When a script is run directly (`python3 file.py`), Python
+inserts the directory containing the script — the project root, in our case — as
+`sys.path[0]`. When a module is run with `-m`, Python inserts the *current working
+directory*. When a file is imported rather than run, the top-level script's directory
+rules and the imported module is found relative to the importing script. Our launcher
+used the `-m` form from a home directory, so `sys.path[0]` was the home directory; the
+project root — and therefore the `layers/` package nested under it — was simply not on
+the search path at all. The interpreter reported "no module named layers" with perfect
+accuracy: there was no such module *on its path*. The mechanism is subtle because it is
+silent in the happy case: from the project root both invocation styles happen to work,
+which is exactly why the bug survived until the launcher came along. Two mechanical
+details of the root cause are worth pinning down because they generalize to every Python
+tool this team will write. First, the empty string: when Python is launched with `-c` or
+interactively, `sys.path[0]` is the empty string, which the interpreter resolves to "the
+current working directory" at the moment each import is looked up — meaning even
+interactive sessions are cwd-sensitive, and our early guess that the environment was the
+problem was backwards in the interesting direction: the environment was not missing
+something, the *launch* was supplying the wrong something. Second, the
+relative-`__file__` caveat: under `python3 -m module`, `__file__` can arrive as a
+relative path, so `os.path.dirname(__file__)` resolves against the process cwd at run
+time rather than being handed an absolute path. In our layout it still resolved to the
+project root, which is why the append worked on every tested launch path — but the
+transferable lesson is that a path anchored on `__file__` is only as absolute as the
+interpreter's invocation, and entry scripts that may be launched under `-m` should
+harden the anchor with `os.path.abspath` as insurance. We kept the committed one-liner
+exactly as written because every launch style we could produce in the lab resolved to a
+correct absolute anchor, and we logged the abspath hardening as a low-cost review item
+for the first real launcher in v2.
+
+INVESTIGATION (only for BIG errors)
+We stopped guessing and started measuring the search path itself. The decisive
+experiment: run `python3 -c "import sys; print(sys.path)"` and compare `sys.path[0]`
+under four invocation styles. Under `python3 main.py` run from the project root,
+`sys.path[0]` was the project root — so `import layers` resolved. Under `python3 -m
+main` run from the home directory, `sys.path[0]` was the *home directory* — and the
+project root was nowhere on the path. Under `python3 -c "..."`, `sys.path[0]` was the
+empty string (the current working directory). Interactive mode behaved like `-c`. We
+also instrumented the failing launcher to echo its `pwd` before invoking Python,
+confirming the caller's working directory differed from the project root. That single
+table — invocation form vs. `sys.path[0]` — isolated the bug completely: the code was
+never wrong; the launch contract was.
+
+FIX (took 1 day)
+The exact change, committed as line 2 of `skeleton_main.py`:
+`sys.path.append(os.path.dirname(__file__))`, placed after the stdlib imports and before
+any project import. Why this is correct: `__file__` is the absolute path of the running
+script, so `os.path.dirname(__file__)` is the project root *regardless of the caller's
+working directory*. Appending it guarantees the `layers/` tree is always on the search
+path, whether the script is run directly, via `-m`, from a launcher, or from `/tmp`. We
+chose `append` over `insert` deliberately so our project tree sits after the standard
+library and site-packages in precedence (a project file can never shadow a stdlib
+module). We verified the fix by rerunning the identical launcher from the identical home
+directory: exit code 0, both prints, then a clean interactive `import layers` in a
+scratch copy.
+
+---
+
+E0002 | v1.0 | SMALL | Found Day 2 | Fixed in 1 day | the first diagnosis round
+File : skeleton_main.py
+Error : os.chdir(os.path.dirname(__file__))
+Terminal : the first diagnosis round
+
+WHAT HAPPENED
+After the first diagnosis round, we tried to "fix" the launch by adding
+`os.chdir(os.path.dirname(__file__))` to the entry script — change the working directory
+to the project root and hope the import follows. - **Initial hypothesis.** The honest
+bad guess: *"The import fails because the interpreter is standing in the wrong folder,
+so put the interpreter in the right folder."*
+
+WHY IT HAPPENED
+The two variables — working directory and module search path — are set at different
+times by different mechanisms. `cwd` is a process property, mutable, but `sys.path[0]`
+for `-m` launches is snapshot at startup from the *then-current* cwd. Treating one as
+the other is category error: we fixed the wrong variable.
+
+FIX (took 1 day)
+Reverted the chdir; applied the real fix (`sys.path.append(
+os.path.dirname(__file__))`), which changes the correct variable — the search path —
+anchored to the file's own location.
+
+---
+
+E0003 | v1.0 | SMALL | Found Day 0 | Fixed in 3 days | the design review
+File : skeleton_main.py
+Error : design rejected: Alternative 1 — Single Pi 4B, no microcontroller
+Terminal : the design review
+
+WHAT HAPPENED
+One codebase, one power rail, no serial protocol to debug, no cross-compilation. This is
+the seductive option because it is the simplest. It fails on two counts. First,
+determinism: bit-banged or kernel-timer PWM on the Pi cannot hold a 50 Hz servo edge to
+the few-millisecond tolerance the MG995 linkage needs, and Python's garbage collector
+makes 30 ms pauses routine. Second, safety: the only watchdog a stock Linux Pi offers is
+the kernel `softdog` module, whose practical timeout is seconds — at least 15 s in
+common configurations, which is 75 times slower than our 200 ms target. At 1.8 m/s that
+means up to 27 m of uncontrolled travel before a reset. There is no software-only fix
+for a hardware safety requirement on a general-purpose OS. Rejected on robustness and
+safety, not on elegance.
+
+WHY IT HAPPENED
+One codebase, one power rail, no serial protocol to debug, no cross-compilation. It
+fails on two counts. First, determinism: bit-banged or kernel-timer PWM on the Pi cannot
+hold a 50 Hz servo edge to the few-millisecond tolerance the MG995 linkage needs, and
+Python's garbage collector makes 30 ms pauses routine. Rejected on robustness and
+safety, not on elegance.
+
+FIX (took 3 days)
+the chosen design, per the chapter's decision section
+
+---
+
+E0004 | v1.0 | SMALL | Found Day 0 | Fixed in 3 days | the design review
+File : skeleton_main.py
+Error : design rejected: Alternative 2 — Jetson (Nano or Orin Nano) as the brain
+Terminal : the design review
+
+WHAT HAPPENED
+More GPU compute than we will ever use. The Orin Nano draws 5-15 W, needs active
+cooling, and the module-plus-carrier stack adds 100 g or more and real volume — both of
+which we are rationing against the fit-in-box check. The vision task is 640x480 HSV,
+which is a fraction of a single Pi 4B core; a Jetson is over-provisioning by an order of
+magnitude in compute and cost, and under-provisioning us in the size budget. We also
+kept a long-horizon view: nothing in the WRO 2026 rounds we understand requires deep
+neural nets. Rejected on cost, size, power, and unused capability.
+
+WHY IT HAPPENED
+Rejected on cost, size, power, and unused capability.
+
+FIX (took 3 days)
+the chosen design, per the chapter's decision section
+
+---
+
+E0005 | v1.0 | SMALL | Found Day 0 | Fixed in 3 days | the design review
+File : skeleton_main.py
+Error : design rejected: Alternative 4 — STM32 (e.g., STM32F4 class) as the muscle
+Terminal : the design review
+
+WHAT HAPPENED
+The gold standard for real-time control — precise hardware timers, rich timer/pwm
+peripherals, and an RTOS ecosystem that would have made the watchdog trivial. The
+counterweight is our own Day 0 skill: nobody on the team had a working STM32 toolchain,
+the vendor IDE and HAL layer have a real learning curve, and the entire point of this
+version is to have the toolchain working by Day 3. Choosing the most *correct* chip over
+the chip we could *prove* by Day 3 would have failed our own acceptance gate. Rejected
+on time-to-proficiency. It remains on the shelf as a plan-B muscle if the ESP32 ever
+disappoints in v2.
+
+WHY IT HAPPENED
+Choosing the most *correct* chip over the chip we could *prove* by Day 3 would have
+failed our own acceptance gate. Rejected on time-to-proficiency.
+
+FIX (took 3 days)
+the chosen design, per the chapter's decision section
+
+---
+
+E0006 | v1.0 | SMALL | Found Day 0 | Fixed in 3 days | the design review
+File : skeleton_main.py
+Error : design rejected: Alternative 5 — ESP32-only, no Pi
+Terminal : the design review
+
+WHAT HAPPENED
+A single ESP32-S3 driving everything. Structurally impossible for this competition: the
+9.2 Mpix/s HSV vision task cannot run in a 33.3 ms frame budget on a 240 MHz
+microcontroller, and vision is mandatory in the WRO rounds we must solve. This
+alternative is not so much rejected as eliminated by arithmetic; it is what forces the
+split in the first place.
+
+WHY IT HAPPENED
+Structurally impossible for this competition: the 9.2 Mpix/s HSV vision task cannot run
+in a 33.3 ms frame budget on a 240 MHz microcontroller, and vision is mandatory in the
+WRO rounds we must solve. This alternative is not so much rejected as eliminated by
+arithmetic; it is what forces the split in the first place.
+
+FIX (took 3 days)
+the chosen design, per the chapter's decision section
+
+---
+
+## v1.1 - I2C BUS SCAN — FIND EVERY SENSOR (Day 4)
+
+TOTAL ERROR : 3
+SMALL : 2
+BIG : 1
+
+E0007 | v1.1 | BIG | Found Day 4 | Fixed in 1 day | No address list was printed at
+File : i2c_scan.py, self_test.py, layer1_sensors.py
+Error : IOError: [Errno 121] Remote I/O error
+Terminal : No address list was printed at
+
+WHAT HAPPENED
+We ran the first full scan with all four sensors connected and the terminal vomited a
+traceback that began `IOError: [Errno 121] Remote I/O error` (on some runs it surfaced
+as `OSError 121`). No address list was printed at all. We unplugged the right VL53L0X
+and the script crashed at a *different* point; we swapped sensors around and the crash
+address moved. The signature was unmistakable: one bad slave was aborting the
+enumeration of all 111 others, and whichever sensor was physically absent or half-seated
+became the crash site.
+
+WHY IT HAPPENED
+Here is the physics. When we probe an address that has a device attached but not
+functioning — physically absent but with a stray pull-up, half-seated in a breadboard,
+or in a reset state holding its lines badly — the transaction can fail in two different
+ways. A *clean* absence produces a NACK on the address byte, which `probe()` treats as
+`False`, and the scan moves on. But a *dirty* absence — a device that ACKs the address
+byte, then fails to clock out or hold the data line for the read — leaves the Linux
+`i2c-dev` driver with an incomplete transfer, and the kernel reports `ENXIO`/errno 121,
+"remote I/O error." The Python binding turned that into an `IOError`. And because our
+loop was, at that first moment, written as a bare loop with no exception handling around
+each probe, the first dirty absence propagated straight up and out: the `for` loop
+terminated, the inventory was empty, and — the nastiest part — the `i2c.unlock()` never
+ran, because there was no `finally`. The bus stayed locked until the process died and
+the OS reclaimed it. So the true cost of the bug was not just a lost run: it was a
+*wedged bus* for every subsequent tool in the same session. One missing sensor had
+cascaded into total sensor blindness plus a locked resource. This is the exact scenario
+the lesson statement — "a missing sensor is a degraded system, not a crashed one" — was
+born from.
+
+INVESTIGATION (only for BIG errors)
+We instrumented the loop — a temporary `print(addr)` before each probe — and re-ran. The
+traceback now pointed at the exact address that had been occupied by the absent module.
+We then ran `i2cdetect` against the same populated-but-broken config: `i2cdetect`
+survived the run and reported the remaining devices. That was the crucial clue: a mature
+probe tool did not crash, so the *kernel* was not crashing; the fault was in how our
+script treated a particular error. We read `dmesg` after a failed probe and saw the
+kernel logging `i2c /dev/i2c-1 ... NACK` style messages — the slave had ACKed the
+address byte and then dropped the transaction, leaving the kernel to return errno 121.
+
+FIX (took 1 day)
+Two edits. First, shield every probe: wrap the `i2c.probe(addr)` call in `try/except`,
+catch the `IOError`/`OSError`, and record a "missing" flag for that address instead of
+letting the exception escape. Second, move the `i2c.unlock()` into a `finally` block so
+the bus is released no matter what. The resulting shape is what the archived
+`i2c_scan.py` shows: the `try/finally` for the lock is present, and the per-address
+exception shield is the documented behavior in the change log. After the fix we ran the
+"remove a sensor" test six times (each of the four sensors removed once, plus two
+repeats) and the script completed every run, printing a correct inventory of the
+survivors plus an implicit absence (the missing address simply absent from the list).
+Criterion #4 passed. The precise structure we settled on, and which we are deliberately
+recording for the team: the *only* way an address may vanish from the report is by being
+absent from `found`; there is no code path in which an address is reported as an error
+object, because errors are not data in our inventory — their absence *is* the data. That
+sentence may sound like a tautology, but it was the design guard that stopped us from
+"helpfully" appending a string like `'0x29!ERR'` to the list, which would have turned
+the config transcription into a parsing problem instead of a copy.
+
+---
+
+E0008 | v1.1 | SMALL | Found Day 4 | Fixed in 1 day | and our first naive reading was
+File : robot_config.json
+Error : 0x29
+Terminal : and our first naive reading was
+
+WHAT HAPPENED
+The scan with all XSHUT high reported exactly one `0x29` hit, and our first naive
+reading was "one VL53 present, two missing." The hardware inventory then claimed the
+left and right VL53L0X were dead, which the later XSHUT-gated bring-up in v1.6 disproved
+(both read fine when powered alone).
+
+WHY IT HAPPENED
+Not a code bug — a measurement-ambiguity bug. `probe(0x29)` asks "does *a* device ACK
+0x29?" and two or three devices can all ACK the same address; open-drain means their
+simultaneous ACK pulls are electrically identical to one device's ACK. The probe simply
+cannot count responders at a collided address. Our inventory tool lacked the *XSHUT
+dimension* — a second axis of control — so the scan was fundamentally unable to see
+through the collision.
+
+FIX (took 1 day)
+Accepted as deferred (5.6.3): the report records the single `0x29` plus an explicit
+ambiguity flag, and the *count* is settled by XSHUT gating in v1.6, which is the correct
+home for it. Prevention: we wrote a standing rule — *any scan result involving 0x29 on
+this robot is a count, not a presence, until XSHUT-verified* — and this rule is exactly
+why `robot_config.json` never hard-codes 0x29: the addresses there (0x30/0x31/0x32) are
+the *reassigned* values that exist only because v1.6 resolved the collision one device
+at a time.
+
+---
+
+E0009 | v1.1 | SMALL | Found Day 4 | Fixed in 1 day | and nothing ever matched
+File : i2c_scan.py
+Error : 0x52
+Terminal : and nothing ever matched
+
+WHAT HAPPENED
+An early draft of the expected-address logic compared the found list against `0x52` for
+the VL53L1X, and against `0xA4` in a variant, and nothing ever matched.
+
+WHY IT HAPPENED
+The 7-bit-vs-wire-byte confusion of section 5.1: the datasheet summary table printed
+0x52 (the *8-bit write address*), we copied it into a 7-bit comparison, and the
+comparison was comparing apples to oranges — the script probes the raw 7-bit value 0x29
+while the literal 0x52 is the shifted value. It was caught at design review because the
+team rule "probe raw 7-bit, report raw 7-bit, configure raw 7-bit" had just been written
+in 5.1, and a junior member flagged the discrepancy.
+
+FIX (took 1 day)
+Standardize on 7-bit raw everywhere, and record both forms in the datasheet notes (0x29
+⇔ 0x52/0x53). Prevention: any future code that reads or writes a sensor's own address
+register must document the shift, because the VL53 address register itself expects the
+*shifted* 8-bit value — the same confusion, one layer deeper, will cost us time in v1.6
+unless we write it down now.
+
+---
+
+## v1.2 - CAMERA CAPTURE TEST (Day 4)
+
+TOTAL ERROR : 6
+SMALL : 5
+BIG : 1
+
+E0010 | v1.2 | BIG | Found Day 4 | Fixed in 1 day | With the first working script (before
+File : camera_test.py
+Error : cap.read()
+Terminal : With the first working script (before
+
+WHAT HAPPENED
+With the first working script (before the warmup was added), running a rapid loop of
+`cap.read()` calls printed the expected shape, but the frame count over a fixed
+wall-clock interval was visibly ragged: instead of ~30 frames per 1000 ms, we saw bursts
+of 25-28 frames followed by a stall of 200-400 ms, then more bursts. The "frame dropped"
+behaviour was confirmed by comparing the number of successful reads against elapsed
+time: over 10.0 s we counted 284 successful reads — a 5.3% deficit against the ideal
+300. The stream was *working* but *not keeping time*.
+
+WHY IT HAPPENED
+The drops were *not* a mode problem and *not* a bus problem. They were the sensor's
+auto-exposure algorithm, running its first convergence sweep. On power-up, the
+IMX219-class sensor's exposure and analogue gain start at low/undetermined values; the
+AE loop then steps through exposure candidates, and during those steps the effective
+frame cadence is not yet locked to the V4L2 timebase the driver uses. The driver, seeing
+the consumer is ready and no new buffer is due, drops to keep the queue fresh. In other
+words: **the first 1.5-2.0 s after open is not steady-state camera behaviour, and any
+measurement of "fps" taken during that window is measuring the AE convergence, not the
+camera.** Our 5.3% deficit was the AE window's worth of dropped frames diluted across 10
+s — the arithmetic lied about the mechanism.
+
+INVESTIGATION (only for BIG errors)
+We isolated the variables one at a time. Removing the per-frame print (SSH output at
+115200 baud costs ~1-5 ms per call) recovered some rate: 292/300 over 10 s — better,
+still short. Querying `CAP_PROP_FPS` right after the resolution set read 30 — the driver
+*claimed* 30. The decisive observation was *when* the drops happened: nearly all of the
+missing frames occurred in the first ~1.5-2.0 s after open, and the steady-state rate
+after that window was exactly 30.0 fps (300/300 over the last 10 s of a 12 s run).
+
+FIX (took 1 day)
+Add the 2.0 s warmup (`time.sleep(2.0)`) after open and *before* the first measured
+read, and discard/ignore all frames captured before the warmup completes. The committed
+script reads exactly one frame after the sleep — the first frame of *steady state*
+rather than the last frame of *convergence*.
+
+---
+
+E0011 | v1.2 | SMALL | Found Day 4 | Fixed in 1 day | before any warmup
+File : camera_test.py
+Error : cap.read()
+Terminal : before any warmup
+
+WHAT HAPPENED
+The very first `cap.read()` — before any warmup — returned `ret == True` and a shape of
+`(480, 640, 3)` (so the pipeline *worked*, geometry correct), but `frame.mean()` was
+~2.1/255 and the printed frame, when we saved it to disk once for inspection, was
+uniformly near-black with faint noise — you could just barely make out the vignette of
+the lens. No image content whatsoever.
+
+WHY IT HAPPENED
+The black first frame is the sensor's auto-exposure **convergence transient**. On
+power-up, the IMX219's exposure and analogue-gain registers sit at their default values
+(very short exposure, low gain); the AE engine then measures the brightness of the first
+frames and steps the registers toward a target. Indoor track lighting (~300-500 lux) is
+much dimmer than the AE algorithm's outdoor-oriented initial assumption, so the *first
+one or two frames are captured before the AE has taken even one corrective step* — they
+are physically underexposed by several stops. The "clean" darkness (rather than noise)
+is exactly what underexposure looks like: signal near zero, read noise faint. It is not
+a wiring fault, not a decode fault, not a dead sensor — it is *physics*: no light
+integration time had elapsed before frame 0. A partially-read first buffer (hypothesis
+4) would have produced banding or a torn image, not uniform darkness.
+
+FIX (took 1 day)
+The 2.0 s warmup after open. Two seconds at the AE algorithm's step cadence is
+comfortably more than the ~1.5 s we measured for the exposure register to reach a stable
+value under our lighting (we watched the exposure property move, settle, then stop
+changing at ~1.4-1.5 s; we chose 2.0 s for margin). Reading one frame *after* the sleep
+therefore returns the first converged frame, not the first frame.
+
+---
+
+E0012 | v1.2 | SMALL | Found Day 4 | Fixed in 1 day | one reboot
+File : camera_test.py
+Error : /dev/video0
+Terminal : one reboot
+
+WHAT HAPPENED
+On one reboot, the camera had not registered the IMX219 overlay (the boot config had
+been edited during testing and one edit did not take), so `/dev/video0` was the
+*kernel's default* camera node configuration, and the first `cap.read()` returned a
+frame of shape `(3280, 2464, 3)` — the sensor's full 8MP mode. The script still printed
+"Camera OK (3280, 2464, 3)". Technically "OK"; catastrophically wrong for the mission —
+an 8MP frame is 24.2 MB in BGR, ~8× our 640×480 footprint, and at 30 fps impossible to
+move on any CPU budget.
+
+WHY IT HAPPENED
+With the overlay missing, the camera fell back to the generic/fallback driver path,
+whose mode negotiation honours a 640×480 request in *capability* but selects the
+full-sensor mode when the consumer starts streaming — a silent, driver-side "biggest
+wins" heuristic. The API reported one truth (`get()` = 640) while the frames delivered
+another truth (`frame.shape` = 3280×2464). Any code that trusted the property query
+instead of the delivered frame would have sailed into v3.x measuring 8MP HSV costs
+against a budget sized for 640×480 — a 3× per-pixel cost blow-up discovered at exactly
+the worst moment.
+
+FIX (took 1 day)
+Two-layer: (a) immediately, fix the boot config so the overlay loads (`dtoverlay=imx219`
+present and booted cleanly) — the shape returned to `(480, 640, 3)`; (b) structurally,
+the committed script's `print(frame.shape)` *is* the assertion, and we now treat **"the
+delivered shape is the only truth about the mode"** as a permanent law. In later
+versions, an explicit `assert frame.shape[:2] == (480, 640)` will sit at the top of the
+vision thread so a driver renegotiation can never again sneak past silently.
+
+---
+
+E0013 | v1.2 | SMALL | Found Day 4 | Fixed in 1 day | killing a *previous* debug script with
+File : camera_test.py
+Error : read()
+Terminal : killing a *previous* debug script with
+
+WHAT HAPPENED
+After killing a *previous* debug script with Ctrl-C mid-capture, the *next*
+`VideoCapture(0)` opened fine but the first `read()` blocked for ~1.2 s (measured with a
+stopwatch around the call) before returning a frame — far above the ~33 ms nominal
+period.
+
+WHY IT HAPPENED
+An unclean kill leaves the previous V4L2 stream half-open: the driver keeps streaming
+into its mmap ring until the file descriptor is actually closed, and the *new* opener
+must wait for the old stream's buffers to drain and re-negotiate before its own first
+frame can be queued. The 1.2 s block is the drain/renegotiate time. It is benign in
+single-process usage but it is a *latency surprise* — exactly the class of thing AC-5
+exists to measure, and the reason the committed script ends with an explicit
+`cap.release()` (clean exit path, R4).
+
+FIX (took 1 day)
+(a) `cap.release()` at the end of the committed script; (b) discipline: always let the
+script exit naturally, never Ctrl-C mid-capture when the camera will be reused soon.
+
+---
+
+E0014 | v1.2 | SMALL | Found Day 4 | Fixed in 1 day | the design review
+File : camera_test.py
+Error : design rejected: Alternative D — No camera this version; push capture to v3.x and start on driving
+Terminal : the design review
+
+WHAT HAPPENED
+The most honest "alternatives considered" list includes the option of *doing nothing*.
+Arguments for it: driving (v2.x) doesn't strictly need vision, and the motor/servo/ESP32
+path is where locomotion risk lives. Arguments against, which won: (a) the 14/14
+hardware gate explicitly includes the camera — "sensor live" is a phase goal, and a
+component gate skipped is a component gate unverified; (b) if the CSI toolchain
+(overlay, driver, OpenCV backend) were fundamentally broken, finding out in v3.x means
+the *whole sensing phase* starts two phases late — that is the definition of compounding
+debt; (c) the camera mount and ribbon routing are mechanical decisions that affect the
+chassis layout, and mechanical decisions get exponentially more expensive to change once
+driving is tuned. "Doing nothing" maximises the probability of a Day-40 surprise. We
+rejected it on risk-arithmetic grounds: **the camera is the component with the highest
+chance of a *catastrophic* incompatibility, and catastrophic incompatibilities are
+cheapest on Day 7.**
+
+WHY IT HAPPENED
+We rejected it on risk-arithmetic grounds: **the camera is the component with the
+highest chance of a *catastrophic* incompatibility, and catastrophic incompatibilities
+are cheapest on Day 7.**
+
+FIX (took 1 day)
+the chosen design, per the chapter's decision section
+
+---
+
+E0015 | v1.2 | SMALL | Found Day 4 | Fixed in 1 day | the design review
+File : camera_test.py
+Error : design rejected: Alternative E — Both: USB camera now, CSI camera later (stereo)
+Terminal : the design review
+
+WHAT HAPPENED
+Real stereo is seductive for depth, but we already have a VL53L1X doing precision depth
+at the front, three ToF sensors total, and no algorithm in the roadmap that needs stereo
+baseline vision. Two capture paths means two driver stacks, two warmup disciplines, two
+calibration jobs, and double the CPU conversion. We rejected it as scope with no mission
+owner.
+
+WHY IT HAPPENED
+We rejected it as scope with no mission owner.
+
+FIX (took 1 day)
+the chosen design, per the chapter's decision section
+
+---
+
+## v1.3 - V1.3 (Day 9)
+
+TOTAL ERROR : 7
+SMALL : 6
+BIG : 1
+
+E0016 | v1.3 | BIG | Found Day 9 | Fixed in 1 day | With our first wiring and first
+File : motor_test.ino
+Error : analogWrite
+Terminal : With our first wiring and first
+
+WHAT HAPPENED
+With our first wiring and first sketch, the motor spun forward when we expected forward,
+and then *kept spinning forward* when we flipped IN1/IN2 for the reverse phase — or
+stopped dead, depending on the run. It never ran reverse. We observed "forward works,
+reverse does nothing" over several power cycles, which ruled out a one-off contact
+issue.
+
+WHY IT HAPPENED
+`analogWrite(PWM, 200)` requested a LEDC channel on a GPIO that the core could not
+attach; the core returned without error and the pin was left at its previous digital
+level. During the forward phase that leftover level happened to be HIGH (we had earlier
+forced it HIGH as a crude enable while debugging), so the driver saw IN1=H/IN2=L with a
+constant HIGH speed input and drove the motor at effectively full speed forward. During
+the reverse phase, IN1/IN2 flipped correctly, but the PWM input stayed at its DC level
+*from the forward phase*, and depending on how the leftover level landed, the driver
+either continued in one direction or sat in a state that produced no rotation. The
+observable "forward only" was the sum of two mechanisms: a silent API failure at the
+GPIO/LEDC boundary, plus a DC-level input being mistaken for a duty cycle. The motor
+itself, the driver, and the battery were innocent the whole time.
+
+INVESTIGATION (only for BIG errors)
+We stopped guessing and measured. A DMM on the IN1/IN2 pins showed clean 3.3 V / 0 V
+transitions in both phases — the direction logic was behaving perfectly. A DMM on the
+PWM pin told a different story: in AC mode it read ~0 V, and in DC mode it held a fixed
+level, not a pulsing average. The scope (once we stopped fighting the trigger) showed
+*no waveform at all* on the PWM pin during either phase. Simultaneously we verified the
+driver by swapping in a second TB6612FNG and — identical behavior, which cleared the
+driver. We re-read the TB6612FNG truth table against our wiring and found nothing wrong.
+The breakthrough was re-reading *our own board's* pinout notes: the pin we had chosen
+for PWM was one of the GPIOs on our S3 module that is not validly routed to the LEDC
+output stage on this board — a shared-function pin. `analogWrite` on it was a silent
+no-op.
+
+FIX (took 1 day)
+We moved the PWM signal to **GPIO 19**, a pin verified on the scope to carry a real 5
+kHz, 78.4% duty waveform, and we kept STBY driven HIGH (the other half of the fix).
+After the move, both phases ran; the instrument showed the waveform before we declared
+victory. The exact code we snapshot is the fixed version: `#define PWM 19`. One extra
+diagnostic step is worth recording because it is what made the "silent no-op" mechanism
+unambiguous rather than merely suspected. After the scope showed nothing on the bad pin,
+we ran a duty sweep: `analogWrite` values of 64, 128, 200, and 255, watching both the
+scope and the motor. On the working pin, each value moved the measured duty by exactly
+the expected quarter-steps (25%, 50%, 78.4%, 100%) and the motor audibly changed pitch
+and speed. On the dead pin, the scope stayed flat at every value and the motor pitch
+never changed — proof that the *API call was being swallowed*, not that our value range
+was wrong. That single sweep collapsed four hypotheses into one mechanism, and it became
+our template for diagnosing any future "parameter has no effect" bug: change the
+parameter over its full range and watch for *any* response before suspecting the
+hardware behind it.
+
+---
+
+E0017 | v1.3 | SMALL | Found Day 9 | Fixed in 1 day | the very first power-up of this
+File : motor_test.ino
+Error : setup()
+Terminal : the very first power-up of this
+
+WHAT HAPPENED
+On the very first power-up of this version's rig, with the motor connected to a
+breadboarded TB6612FNG, nothing turned — not forward, not reverse, not a twitch.
+
+WHY IT HAPPENED
+STBY on the TB6612FNG is a *tri-state master enable*: LOW or floating forces both
+outputs high-impedance, so no current path exists through the winding regardless of the
+other inputs. The motor was physically isolated from the battery by the driver's own
+disabled outputs.
+
+FIX (took 1 day)
+Wire STBY to a GPIO and drive it HIGH, and specifically in `setup()` so the driver is
+enabled before the first loop iteration: `digitalWrite(STBY, HIGH)` — the exact line in
+the snapshot. We chose to control STBY from firmware rather than tying it to a pull-up
+resistor, so that a future safety feature (firmware-controlled disable) remains
+possible.
+
+---
+
+E0018 | v1.3 | SMALL | Found Day 9 | Fixed in 1 day | current measurements with the clamp meter
+File : motor_test.ino
+Error : analogWrite(255)
+Terminal : current measurements with the clamp meter
+
+WHAT HAPPENED
+During current measurements with the clamp meter in peak-hold mode, we caught a
+transient of roughly 2.6 A on the motor supply line at the instant of reversal —
+comfortably under the 3.2 A channel peak, but far above the ~0.5 A no-load steady state,
+and repeatable.
+
+WHY IT HAPPENED
+A DC motor winding is an inductor. Slamming the H-bridge from full-forward drive to
+full-reverse drive attempts to force the winding current to reverse instantly; the
+inductor resists by producing a back-EMF that, combined with the new drive voltage,
+drives a transient current far above steady state. Coasting first (PWM=0, low-side path
+open) lets the winding current decay through freewheel diodes toward zero, so the
+reversal starts from near-zero current.
+
+FIX (took 1 day)
+The code already embodies the fix — the `analogWrite(PWM, 0)` + `delay(500)` and
+`delay(1000)` coast phases between direction changes. Effective dwell is 500 ms, far
+more than the winding time constant (a few ms), so current reliably reaches ~zero.
+
+---
+
+E0019 | v1.3 | SMALL | Found Day 9 | Fixed in 1 day | race
+File : motor_test.ino
+Error : "Forward" was not forward: the direction convention gap
+Terminal : race
+
+WHAT HAPPENED
+After the reverse phase worked, we marked the shaft, spun the wheel, and discovered that
+the *robot* would move in the direction opposite to what we had mentally labeled
+"forward." Not an electrical fault at all — a labeling fault, but one that would have
+been catastrophic at the race queue if left unfixed.
+
+WHY IT HAPPENED
+There was no single mechanism — the mechanism was *absence*. We had never written down
+which electrical state equals which robot motion, so the mapping between the sketch's
+"forward" comment and chassis motion was arbitrary until someone declared it.
+
+FIX (took 1 day)
+We declared the convention — IN1=HIGH, IN2=LOW = robot forward (and matching the motor's
+red lead to output A+) — and wrote it into the pin-map note referenced by AC-7. The
+comment in the code stays, and the convention becomes the seed of the future motor ABI.
+
+---
+
+E0020 | v1.3 | SMALL | Found Day 9 | Fixed in 1 day | the design review
+File : motor_test.ino
+Error : design rejected: Alternative C — Raspberry Pi generates PWM via pigpio hardware PWM
+Terminal : the design review
+
+WHAT HAPPENED
+The Pi's GPIO hardware can produce glitch-free PWM. But this violates the brain/muscle
+split that the entire architecture is built on, puts a 3.3 V Linux GPIO in the current
+path, and couples motor timing to Linux uptime and scheduling. If the Pi hiccups while
+running vision, the wheels stutter. One engineering principle decided this: **the
+real-time muscle must be a dedicated real-time chip.** Rejected.
+
+WHY IT HAPPENED
+One engineering principle decided this: **the real-time muscle must be a dedicated
+real-time chip.** Rejected.
+
+FIX (took 1 day)
+the chosen design, per the chapter's decision section
+
+---
+
+E0021 | v1.3 | SMALL | Found Day 9 | Fixed in 1 day | the design review
+File : motor_test.ino
+Error : design rejected: Alternative D — L298N instead of TB6612FNG
+Terminal : the design review
+
+WHAT HAPPENED
+The L298N is the classic dual H-bridge and it is what the CHANGE.md's title
+half-mentions ("TB6612FNG/L298N"), because we had one on the bench. Its failure mode for
+us is electrical, not cultural: it uses bipolar transistors with roughly 2 V
+collector-emitter dropout, versus ~0.5 V for the TB6612's MOSFETs. At 3 A, that is `2 V
+× 3 A = 6 W` of pure heat dumped in the driver versus `0.5 V × 3 A = 1.5 W` for the
+TB6612. With a 7.4 V battery, the L298N leaves us `7.4 − 2 = 5.4 V` across the motor at
+full throttle — losing 27% of our voltage headroom to the driver itself. The TB6612
+keeps `7.4 − 0.5 = 6.9 V`. Rejected as primary, retained as fallback only. **Alternative
+E — A pre-built brushed motor "ESC" with its own PWM interface.** These exist for RC
+cars and would hide all the H-bridge complexity. But they add a second protocol layer,
+they usually expect a 1–2 ms servo-style frame instead of a duty cycle, they cost grams
+and money, and they rob us of direct control over the brake/coast states that the
+eventual `short-brake stop` behavior needs. For a competition where the motor must hold
+position at a stop line, coast-through-ESC is a liability. Rejected.
+
+WHY IT HAPPENED
+Its failure mode for us is electrical, not cultural: it uses bipolar transistors with
+roughly 2 V collector-emitter dropout, versus ~0.5 V for the TB6612's MOSFETs. Rejected
+as primary, retained as fallback only. Rejected.
+
+FIX (took 1 day)
+the chosen design, per the chapter's decision section
+
+---
+
+E0022 | v1.3 | SMALL | Found Day 9 | Fixed in 1 day | the design review
+File : motor_test.ino
+Error : design rejected: Alternative F — Bit-bang the PWM from a hardware timer ISR
+Terminal : the design review
+
+WHAT HAPPENED
+Fully maximal control, no peripheral abstraction. But it burns CPU and timer resources
+on a board that will eventually run the watchdog, the CRC8 handling, and the 100 Hz link
+all at once. The hardware LEDC exists precisely so we do not do this. Rejected as
+premature optimization on Day 9.
+
+WHY IT HAPPENED
+Rejected as premature optimization on Day 9.
+
+FIX (took 1 day)
+the chosen design, per the chapter's decision section
+
+---
+
+## v1.4 - SERVO CALIBRATION SWEEP (Day 1)
+
+TOTAL ERROR : 8
+SMALL : 7
+BIG : 1
+
+E0023 | v1.4 | BIG | Found Day 1 | Fixed in 1 day | bench
+File : servo_calib.py
+Error : Violent servo jitter at the extremes of the range (the headline bug)
+Terminal : bench
+
+WHAT HAPPENED
+During the first calibration pass, the servo behaved perfectly from −30° through +30° —
+every setpoint reached, the wheel static, the protractor readings consistent across
+repeats. At the commanded setpoints beyond roughly ±35°, the behaviour changed
+qualitatively: the MG995 began a violent, audible buzz; the gear train rattled; the
+front wheel oscillated visibly by an estimated ±2-3°; and on the bench supply the
+current meter swung from the ~0.5 A slew current to spikes of 1.5-2 A. The servo body
+grew noticeably warm within about ten seconds of being held at the extreme setpoint. The
+wheel was clearly *trying* to travel further and physically could not. This is the
+"jittered violently at the extremes" that the short CHANGE.md recorded. **Initial
+hypotheses — written down before we measured, in the order we believed them.** (1)
+*Packet corruption:* the ESP32 received garbage and drove a bogus pulse width. (2)
+*Power sag:* the motor-driver and servo sharing a rail caused a brownout that
+retriggered the servo's comparator. (3) *ESP32 timer jitter:* the PWM peripheral was
+wandering and the servo was chasing noise. (4) *Deadband oscillation:* the commanded
+setpoint was unreachable, so the error signal never nulled and the servo hunted. (5)
+*Genuine mechanical stall:* the commanded angle exceeded the linkage's physical travel
+and the servo was stalling against the stop. We were wrong about 1, 2, and 3, partially
+right about 4, and the truth was 5 combined with 4 — the classic compound failure. Here
+is how we found out.
+
+WHY IT HAPPENED
+The MG995's control loop is a proportional servo: error = commanded_pulse −
+feedback_pulse; it drives the motor proportional to (and in the sign of) that error.
+Near the mechanical stop, three things collide. (a) *The physical limit is inside the
+commandable range.* The linkage's travel ran out at roughly −36.5° / +35.8° on this
+unit, but the datasheet-honest 500-2500 µs map and our own early sweeps permitted
+commands past that; any pulse beyond the stop translates to an error signal that can
+*never* be nulled because the pot can never reach the commanded position. (b) *PWM
+jitter feeds the unnullable error.* The ±2-4 µs wander (L4) modulates the commanded
+value across the stop boundary; the servo sees the command alternately inside and
+outside the reachable region and alternates between "drive harder" and "drive harder in
+reverse" — an oscillation that the proportional gain and the motor's mechanical time
+constant turn into an audible, 2-3° visible buzz. (c) *Backlash amplification.* The
+plastic gear train's ~0.4° backlash plus the tie-rod's mechanical advantage near full
+lock mechanically amplify the small hunting into the visible oscillation, and the
+stalled motor current (1.2 A plus spikes) explains the heat. So the true chain is:
+*unreachable setpoint (5) → perpetually non-nullable error + jitter across the boundary
+(3,4) → proportional hunt amplified by backlash (4) → stall current and heat (L7).* Each
+hypothesis we initially believed was a real factor except pure packet corruption and
+pure power sag; the failure was the compound of the ones we were right about.
+
+INVESTIGATION (only for BIG errors)
+We did not trust the first hypothesis; we *measured* it. First we scoped the PWM line at
+the servo's input. The pulse train was clean and the pulse width matched the commanded
+value to within the scope's resolution when the servo was at centre. Then we scoped it
+*while the servo was jittering*: the pulse width was stable at the commanded value, with
+±2-4 µs of wander (L4) — nowhere near enough to explain a 5° wheel oscillation.
+Hypothesis 1 (corruption) died first: the packet decodes were all clean and the jitter
+appeared at the *same* commanded angles in repeated runs, which is not what corruption
+looks like — corruption would be random across runs. Hypothesis 2 (power) died next: we
+fed the servo from a separate lab supply and the jitter did not change, so rail sag was
+not the cause (though the sag we *did* see — 0.3 V during spikes — became a documented
+power-budget note, L7). Hypothesis 3 (timer jitter) was partially correct as a
+*contributor* — the ±2-4 µs wander is real — but wrong as a *cause*: ±4 µs is ±0.23° at
+our slope, and the wheel was moving ±2-3°.
+
+FIX (took 1 day)
+Two changes, one in the map and one in the habit. (1) *Clamp the commandable range to
+±35°* and map linearly *inside* that range — exactly what the short CHANGE.md records:
+"Limited the command range to ±35° and mapped linearly inside it." The clamp guarantees
+that no ever-commanded setpoint exceeds the reachable envelope (R3), so the error signal
+can always be nulled and the hunt condition cannot occur. (2) *Reclassify the ends of
+the range.* The physical limits at −36.5° / +35.8° are now reserved as "hardware limit
+check" values that calibration may *visit* once, gently, and that driving software may
+*never* command. The envelope splits into three zones we now keep in three separate
+config entries: operating ±30° (safe, daily driving), soft-limit ±35° (reachable,
+discouraged), and hard stop ±36.5°/+35.8° (never commanded).
+
+---
+
+E0024 | v1.4 | SMALL | Found Day 1 | Fixed in 1 day | run one
+File : servo_calib.py
+Error : Measurement miss during the first sweep (the operator bug)
+Terminal : run one
+
+WHAT HAPPENED
+On run one, the operator blinked — actually, misread the wheel during the 0.8 s dwell
+window at the +10° setpoint and recorded a value about 3° off. The resulting linear fit
+had a visibly worse residual at that single point (1.8° vs a 0.5° neighbourhood), and we
+wasted ten minutes retesting around +10° before we realized the point itself was the
+outlier.
+
+WHY IT HAPPENED
+Human parallax: reading a protractor from slightly off-axis at 0.5° resolution, while a
+wheel at its dwell-setpoint waits only 0.8 s, is a fragile act. The failure is
+procedural, not technical — our measurement protocol lacked redundancy.
+
+FIX (took 1 day)
+Three repeats per setpoint, recorded independently, with the median taken; if any repeat
+differs from the median by more than 1°, the setpoint is re-measured. This turned a
+single fragile reading into a robust sample.
+
+---
+
+E0025 | v1.4 | SMALL | Found Day 1 | Fixed in 1 day | While hunting the true mechanical limits
+File : servo_calib.py
+Error : The confirmation pass nearly slammed the mechanism
+Terminal : While hunting the true mechanical limits
+
+WHAT HAPPENED
+While hunting the true mechanical limits (the "visit the stops gently" step of
+Alternative D's philosophy), we commanded a setpoint estimated at −37°. The wheel bind,
+the current spike to 1.8 A and a loud gear grind — then the servo buzzed. We aborted
+within about two seconds.
+
+WHY IT HAPPENED
+The stop is a *soft* mechanical limit (the tie-rod jams at the knuckle's geometry)
+rather than a hard physical end, so the servo encounters rising resistance rather than a
+sudden wall — and with jitter crossing the boundary, a 0.5°-step exploration is the only
+safe way to find it. We had stepped too coarsely.
+
+FIX (took 1 day)
+The limit-hunting step now uses 0.5° increments and a current threshold: if the supply
+current exceeds 1.0 A sustained for >500 ms, the step is recorded as the boundary and we
+back off immediately. No more guessing in 1° steps.
+
+---
+
+E0026 | v1.4 | SMALL | Found Day 1 | Fixed in 1 day | the design review
+File : servo_calib.py
+Error : design rejected: Alternative A — Trust the datasheet linear map
+Terminal : the design review
+
+WHAT HAPPENED
+Use the MG995's nominal 500-2500 µs ≈ ±90° map and a textbook 1500 µs centre, skip the
+protractor, write the numbers into config, move on. *Analysis:* this is the fastest path
+and the most tempting. It fails for three concrete reasons. First, unit tolerance: the
+MG995's position pot and mechanical assembly vary unit to unit by easily ±5-10° of
+offset — the "1500 µs = centre" assumption can be off by ten degrees on our actual unit,
+which at 1.8 m/s means the robot drives in a gentle but continuous arc we cannot
+explain. Second, the linkage arcsin nonlinearity is invisible to a datasheet, which
+describes the bare servo, not our tie-rod and knuckle. Third, and fatally for the
+driving phase, a datasheet map gives us no information about *our* mechanical stops; we
+would discover them the violent way, at speed. Effort is tiny, but the risk is
+catastrophic and the robustness is nonexistent. Rejected.
+
+WHY IT HAPPENED
+It fails for three concrete reasons. First, unit tolerance: the MG995's position pot and
+mechanical assembly vary unit to unit by easily ±5-10° of offset — the "1500 µs =
+centre" assumption can be off by ten degrees on our actual unit, which at 1.8 m/s means
+the robot drives in a gentle but continuous arc we cannot explain. Effort is tiny, but
+the risk is catastrophic and the robustness is nonexistent. Rejected.
+
+FIX (took 1 day)
+the chosen design, per the chapter's decision section
+
+---
+
+E0027 | v1.4 | SMALL | Found Day 1 | Fixed in 1 day | the design review
+File : servo_calib.py
+Error : design rejected: Alternative B — Closed-loop calibration with a steering-angle sensor
+Terminal : the design review
+
+WHAT HAPPENED
+Mount an AS5600 magnetic encoder or a potentiometer on the kingpin axis, have the ESP32
+close a loop to a commanded wheel angle, and measure the angle electronically instead of
+by eye. *Analysis:* this is the "proper engineer's" answer and it produces superb data —
+the encoder measures 0.1° or better, hysteresis becomes visible, and the map is a
+by-product of the control loop. It fails the WRO constraint in Section 4: size and
+weight limits leave no budget for another sensor, no room on the kingpin, and no wire
+budget. It also drags in a new I2C/ADC driver, a new calibration of the sensor itself,
+and a new failure mode, all before we have proven the basic servo. It is the right tool
+for v6/v7 when steering accuracy starts to matter at the ±2 cm parking level; it is
+wrong for Day 12. Rejected for this version, logged as debt for later.
+
+WHY IT HAPPENED
+It fails the WRO constraint in Section 4: size and weight limits leave no budget for
+another sensor, no room on the kingpin, and no wire budget. It also drags in a new
+I2C/ADC driver, a new calibration of the sensor itself, and a new failure mode, all
+before we have proven the basic servo. Rejected for this version, logged as debt for
+later.
+
+FIX (took 1 day)
+the chosen design, per the chapter's decision section
+
+---
+
+E0028 | v1.4 | SMALL | Found Day 1 | Fixed in 1 day | the design review
+File : servo_calib.py
+Error : design rejected: Alternative C — Binary search / coarse-fine two-pass sweep
+Terminal : the design review
+
+WHAT HAPPENED
+First pass in 10° steps to find both mechanical stops cheaply; second pass in 1° steps
+only inside the discovered envelope; third optional pass near centre at 0.5°.
+*Analysis:* this is smarter than a uniform sweep — it spends measurement effort where it
+matters (at the ends and at centre) and wastes none outside the mechanism's real range.
+It also avoids commanding values that physically cannot exist. Its cost is procedural
+complexity: two or three passes means three times the protocol bookkeeping, and we had
+no automated angle logger, so every pass was human protractor time anyway. In a version
+whose only deliverable is the map, the uniform sweep's extra minutes buy simplicity and
+sanity. Half-rejected: the *philosophy* (find limits, then fill in) survived into the
+decision; the *procedure* (multi-pass) did not.
+
+WHY IT HAPPENED
+It also avoids commanding values that physically cannot exist. Half-rejected: the
+*philosophy* (find limits, then fill in) survived into the decision; the *procedure*
+(multi-pass) did not.
+
+FIX (took 1 day)
+the chosen design, per the chapter's decision section
+
+---
+
+E0029 | v1.4 | SMALL | Found Day 1 | Fixed in 1 day | the design review
+File : servo_calib.py
+Error : design rejected: Alternative D — End-stop hunting, then assume linear
+Terminal : the design review
+
+WHAT HAPPENED
+Command increasing pulses until the wheel physically binds, record the two binding
+pulses as ±max, then declare the map linear between them and be done. *Analysis:* this
+is what the datasheet-map crowd does after discovering stops. It measures the *stops*
+but assumes the *shape*. It has two weaknesses: it cannot catch the arcsin curvature of
+the linkage, and — worse — the act of binding the servo is exactly the violent jitter we
+observed in Section 9; doing it deliberately, repeatedly, to find both ends is precisely
+how you cook a plastic-gear servo on Day 12. The stops were found, but they were found
+*once*, gently, by commanding a sweep that always kept 5° of margin, and the map inside
+was measured rather than assumed. Rejected as a standalone strategy.
+
+WHY IT HAPPENED
+It has two weaknesses: it cannot catch the arcsin curvature of the linkage, and — worse
+— the act of binding the servo is exactly the violent jitter we observed in Section 9;
+doing it deliberately, repeatedly, to find both ends is precisely how you cook a
+plastic-gear servo on Day 12. Rejected as a standalone strategy.
+
+FIX (took 1 day)
+the chosen design, per the chapter's decision section
+
+---
+
+E0030 | v1.4 | SMALL | Found Day 1 | Fixed in 1 day | the design review
+File : servo_calib.py
+Error : design rejected: Alternative E — Image-based wheel-angle measurement
+Terminal : the design review
+
+WHAT HAPPENED
+Point the 640×480 camera at the wheel, detect a stripe on the tire with the HSV pipeline
+we know is coming in v3.x, and read the angle from pixels. *Analysis:* this is
+attractive because it reuses the vision system and removes the human with the
+protractor. It is rejected for the most boring of reasons: the camera pipeline does not
+exist yet, its accuracy is unknown and is bounded by pixel resolution (at 640×480 a tire
+edge a metre away subtends maybe 50 pixels, i.e. a few degrees per pixel — worse than
+the protractor's 0.5°), and it creates a circular dependency: we need a calibrated
+steering system to validate the camera, but we would be calibrating steering *with* the
+camera. Wrong order. Rejected. **Alternative F — Uniform fixed-step sweep with
+protractor, exactly what we built.** Command −35° to +35° in 5° steps (15 points), dwell
+800 ms, read the wheel on a protractor, fit a line. *Analysis:* the chosen path. It is
+simpler than C, cheaper than B, far more honest than A and D, and avoids the circularity
+of E. Its known weaknesses: 5° steps are coarse for capturing the arcsin curvature (we
+mitigated with a residual analysis and the knowledge that the curvature is below the
+deadband's 0.35° until the last few degrees), and the human-with-protractor has parallax
+error (we mitigated with 3 repeats per point, Section 10). It wins because this
+version's job is to replace a guess with a measurement, not to build the final steering
+model.
+
+WHY IT HAPPENED
+It is rejected for the most boring of reasons: the camera pipeline does not exist yet,
+its accuracy is unknown and is bounded by pixel resolution (at 640×480 a tire edge a
+metre away subtends maybe 50 pixels, i.e. Rejected. Its known weaknesses: 5° steps are
+coarse for capturing the arcsin curvature (we mitigated with a residual analysis and the
+knowledge that the curvature is below the deadband's 0.35° until the last few degrees),
+and the human-with-protractor has parallax error (we mitigated with 3 repeats per point,
+Section 10).
+
+FIX (took 1 day)
+the chosen design, per the chapter's decision section
+
+---
+
+## v1.5 - V1.5 (Day 15-16)
+
+TOTAL ERROR : 7
+SMALL : 6
+BIG : 1
+
+E0031 | v1.5 | BIG | Found Day 16 | Fixed in 1 day | the first run of the link
+File : uart_loop.py
+Error : FAIL
+Terminal : the first run of the link
+
+WHAT HAPPENED
+On the first run of the link test, every iteration printed `FAIL`. The predicate
+`len(echo) == 10 and echo[8] == 0x5A` never held. At first the failure was reported at
+the coarse grain of the `ok` boolean; we had not yet instrumented the bytes. What we
+*could* see immediately was that the failure was not intermittent and not improving:
+iteration 1 through iteration 20 all failed identically, and the console showed the
+`seq` counter advancing correctly — meaning the Pi was definitely sending and definitely
+reading *something*. A dead wire would have produced `b''` reads; instead we were
+reading real bytes that failed the check. That detail — reads returning data, but the
+wrong data — was our first clue that this was a *framing* problem, not an *electrical*
+problem.
+
+WHY IT HAPPENED
+The bug was a *persistent stream misalignment in the Pi's receive buffer*, not a lost
+byte on the wire and not an ESP32 defect. Mechanism, step by step: 1. The ESP32-S3's ROM
+bootloader and prior aborted runs left a small residue of bytes in the Pi's tty receive
+buffer before our script ever read. This is C10 — stale bytes are state, and we opened
+the port without draining it. 2. On the first `read(10)`, the read consumed those stale
+bytes first, so the window was offset by N bytes: the frame's first byte, `0xAA`, sat
+*behind* the stale bytes and fell outside the 10-byte window. Byte 8 of what we read was
+no longer the check byte `0x5A`; it was whatever payload byte had slid into that slot.
+3. The self-sustaining part: because the ESP32's echo stream had a small constant tail
+(we measured a persistent 1–2 byte offset), each read left the *previous* frame's
+trailing byte(s) sitting in the buffer. The next iteration's read then started at that
+leftover byte, pushing the new frame's `0xAA` out of slot 0 again. The misalignment
+therefore did not heal itself — it reproduced on every packet, which is exactly the
+reported symptom "the first byte of *every* packet was lost." A one-time stale seed
+explains the first failure; the recurring leftover tail explains why all 20 failed. 4.
+Compounding factor: without `timeout=0.1`, the misaligned read could also *hang*. If the
+ESP32 had sent fewer than 10 bytes (which the offset made likely — we saw 9-byte echoes
+during the worst readings), a no-timeout `read(10)` blocks forever waiting for the 10th
+byte that will never come. So the original code was vulnerable to two distinct failure
+modes from the same root cause: wrong-data failures and infinite-block failures.
+
+INVESTIGATION (only for BIG errors)
+Three measurements, in order: 1. **Hex dump.** We changed the print to emit `echo.hex()`
+and re-ran. The dumps showed the read window contained *real bytes* but shifted: the
+leading `0xAA` of our frame was absent from slot 0, and the window ended with a byte
+that belonged to the *previous* transmission. Repeated runs showed the offset was
+constant — one to two bytes — and self-sustaining across iterations. This ruled out H2
+(a marginal start bit would corrupt a single byte, not shift a whole window) and
+immediately elevated H3. 2. **Isolation of the ESP32.** We opened the muscle in the
+Arduino serial monitor (the IDE's own terminal, at 115200), sent the same 10 bytes by
+hand, and observed a clean 10-byte echo. The ESP32's TX/RX path was demonstrably fine
+end-to-end without the Pi in the loop. This *mostly* ruled out H1 — the echo routine was
+faithful — though we kept a residual doubt that the Pi's burst timing, rather than the
+echo routine, was the trigger. 3. **Open-time state probe.** We instrumented the port
+open: immediately after `serial.Serial(...)` we read a peek of the input buffer before
+any of our sends. It was non-empty — a handful of bytes were already sitting there from
+the boot/power-on sequence and from prior runs of the script that had been Ctrl-C'd
+mid-cycle. That was the smoking gun for the seed. We also ran one control experiment to
+separate "buffer pollution" from "echo routine misbehavior": we wrote the frame, waited
+200 ms (four times the nominal round trip), and *then* read. With the longer settle
+time, the read returned a perfectly aligned 10-byte echo on iteration 1 — because the
+extra wait had let the stale bytes be consumed before our first read began. But
+iteration 2 failed again, and this is the observation that nailed the self-sustaining
+mechanism: a *single* one-time flush at open was not enough; the offset re-formed on
+every packet because each cycle left a tail byte behind. That is the difference between
+"flush once at startup" and our final fix "flush before every send" — and it is the
+empirical proof that the root cause was a *recurring* misalignment, not a one-time boot
+artifact. In total we logged roughly 30–40 stale bytes across the debug runs before the
+fix; after `reset_input_buffer()` was in place, the residual buffer at the end of a run
+was exactly 0 bytes.
+
+FIX (took 1 day)
+Two changes, shipped together, matching the two failure modes: 1.
+`ser.reset_input_buffer()` immediately before every `ser.write(...)` — drains the stale
+bytes and the previous frame's leftover tail *before* each handshake, so the read window
+always starts at the fresh `0xAA` of the packet we just sent. This directly kills the
+self-sustaining misalignment. 2. `timeout=0.1` on the port — converts the potential
+infinite block into a bounded read that returns whatever arrived within 100 ms, so a
+genuinely broken link degrades to a `FAIL` print, not a frozen script.
+
+---
+
+E0032 | v1.5 | SMALL | Found Day 15 | Fixed in 2 days | the design review
+File : uart_loop.py
+Error : design rejected: Alternative A — I2C, Pi master ↔ ESP32-S3 slave
+Terminal : the design review
+
+WHAT HAPPENED
+The Pi's I2C peripheral can certainly run a master at 400 kHz, and the sensors already
+prove the bus. But the ESP32-S3 as an I2C *slave* is a known pain point in the
+ecosystem: the S3's I2C slave driver has had address-sampling and clock-stretching edge
+cases, and slave-mode code means the ESP32 must service transactions in interrupt
+context, which fights the Arduino-core loop model we use for the muscle. Worse, I2C is a
+*shared addressed* bus — every transaction needs a slave address handshake, multi-master
+is fragile, and the practical cable length is tens of centimeters with real ground-drop
+risk in a servo-shaking chassis. It also gives us zero framing: we still must define
+packet boundaries ourselves. It buys us nothing over UART and costs us an address, an
+interrupt handler, and a fragile driver. *Rejected: complexity without benefit, and a
+shared bus we already need for the three ToF sensors and IMU — why add the Pi as a
+fourth address to the same electrically noisy rail?*
+
+WHY IT HAPPENED
+*Rejected: complexity without benefit, and a shared bus we already need for the three
+ToF sensors and IMU — why add the Pi as a fourth address to the same electrically noisy
+rail?*
+
+FIX (took 2 days)
+the chosen design, per the chapter's decision section
+
+---
+
+E0033 | v1.5 | SMALL | Found Day 15 | Fixed in 2 days | the design review
+File : uart_loop.py
+Error : design rejected: Alternative B — SPI, Pi master ↔ ESP32-S3 slave
+Terminal : the design review
+
+WHAT HAPPENED
+SPI is the speed king: 10s of Mbps, full-duplex, no framing tax. But speed is irrelevant
+here — our requirement is 10 kbit/s, and SPI at that speed is like flying a helicopter
+to cross a driveway. The costs are real: dedicated pins (MISO/MOSI/SCLK/CS), the
+ESP32-S3 SPI slave mode and DMA buffers, and the Pi's bit-banged-or-driver CS handling
+under Linux scheduling jitter. SPI also has no built-in byte alignment guarantee between
+arbitrary word sizes; both ends must implement a byte-stream discipline identical to
+what UART needs anyway. Most damning: SPI master/slave requires a *shared clock*, and
+the whole point of v1.5 is to learn to live with two CPUs that have *different clocks*.
+*Rejected: over-specified for a 10 kbit/s need; adds pin pressure and clock coupling we
+are trying to eliminate.*
+
+WHY IT HAPPENED
+*Rejected: over-specified for a 10 kbit/s need; adds pin pressure and clock coupling we
+are trying to eliminate.*
+
+FIX (took 2 days)
+the chosen design, per the chapter's decision section
+
+---
+
+E0034 | v1.5 | SMALL | Found Day 15 | Fixed in 2 days | the design review
+File : uart_loop.py
+Error : design rejected: Alternative C — WiFi (UDP or TCP) between the two on-chip radios
+Terminal : the design review
+
+WHAT HAPPENED
+The ESP32-S3 *is* a WiFi SoC, and the Pi 4B has WiFi; the "wireless future" is
+seductive. But measure the reality against C8: a 200 ms watchdog wants deterministic
+sub-100 ms delivery. UDP over infrastructure mode has scheduling jitter of milliseconds
+to tens of milliseconds, connection setup on both ends, RF interference in a room full
+of other teams' radios, and — critically for a competition — WiFi needs an access point
+or static-peer negotiation that adds a boot-time failure mode ("why is the robot not
+listening? oh, the AP is down"). TCP adds retransmission latency; UDP adds packet loss
+with no automatic recovery. We estimate 1–3% UDP loss in a crowded venue, which at 100
+Hz means a corrupted command every few seconds. A watchdog-fed muscle cannot be handed
+1–3% loss silently. *Rejected: latency, loss, and boot-time nondeterminism, all directly
+violating C8.*
+
+WHY IT HAPPENED
+UDP over infrastructure mode has scheduling jitter of milliseconds to tens of
+milliseconds, connection setup on both ends, RF interference in a room full of other
+teams' radios, and — critically for a competition — WiFi needs an access point or
+static-peer negotiation that adds a boot-time failure mode ("why is the robot not
+listening? A watchdog-fed muscle cannot be handed 1–3% loss silently. *Rejected:
+latency, loss, and boot-time nondeterminism, all directly violating C8.*
+
+FIX (took 2 days)
+the chosen design, per the chapter's decision section
+
+---
+
+E0035 | v1.5 | SMALL | Found Day 15 | Fixed in 2 days | the design review
+File : uart_loop.py
+Error : design rejected: Alternative D — Native USB CDC, using the ESP32-S3's own USB port
+Terminal : the design review
+
+WHAT HAPPENED
+The S3 has native USB; flashing over USB-CDC is common and `/dev/ttyACM0` is the Pi-side
+device. The problem at v1.5 time is twofold: our dev board exposes a UART bridge
+(`/dev/ttyUSB0`), not the native USB CDC, so going CDC means a different board wiring or
+a different flashing path; and USB CDC negotiation adds a full USB enum/descriptor layer
+on both ends for a link that carries 1 kbyte/s. USB also *is* shared-clock serial in
+effect — the USB host drives the timing — which again couples the two CPUs' timing.
+*Rejected for now: it solves a problem we do not have (speed) at the cost of a device
+role (enumeration, descriptors, driver) we do not need; noted as a fallback if the
+bridge ever misbehaves.*
+
+WHY IT HAPPENED
+*Rejected for now: it solves a problem we do not have (speed) at the cost of a device
+role (enumeration, descriptors, driver) we do not need; noted as a fallback if the
+bridge ever misbehaves.*
+
+FIX (took 2 days)
+the chosen design, per the chapter's decision section
+
+---
+
+E0036 | v1.5 | SMALL | Found Day 15 | Fixed in 2 days | the design review
+File : uart_loop.py
+Error : design rejected: Alternative E — Text/AT-style line protocol over the same UART
+Terminal : the design review
+
+WHAT HAPPENED
+Instead of binary frames, send human-readable lines like `DRIVE 45 60\n` and parse them.
+The honest appeal: debug-ability, you can type commands into a serial terminal by hand.
+The fatal cost: parsing cost and ambiguity. A text line of, say, 20 characters at 10
+bit/char is 200 bit-times — 2.3 ms at 115200 — versus 868 µs for our binary 10-byte
+frame; at 100 Hz that doubles the wire time. Text parsing invites the classic bugs we
+refuse to accept on a watchdog link: missing delimiters, mixed `\r`/`\n`,
+locale/encoding, `atoi` boundary cases. And a line protocol *needs* a delimiter which
+*is* a framing mechanism — but one that allows arbitrary-length messages, which is
+exactly the resynchronization ambiguity a fixed 10-byte frame avoids: with a fixed
+length we always know where the next packet starts once the header is found. *Rejected:
+we chose the discipline of fixed geometry over the convenience of readability, and we
+paid for it later by building `serial_protocol.py` around the same 10-byte geometry.*
+
+WHY IT HAPPENED
+The honest appeal: debug-ability, you can type commands into a serial terminal by hand.
+Text parsing invites the classic bugs we refuse to accept on a watchdog link: missing
+delimiters, mixed `\r`/`\n`, locale/encoding, `atoi` boundary cases. *Rejected: we chose
+the discipline of fixed geometry over the convenience of readability, and we paid for it
+later by building `serial_protocol.py` around the same 10-byte geometry.*
+
+FIX (took 2 days)
+the chosen design, per the chapter's decision section
+
+---
+
+E0037 | v1.5 | SMALL | Found Day 15 | Fixed in 2 days | the design review
+File : uart_loop.py
+Error : design rejected: Alternative F — No link at all; let the ESP32 run autonomously
+Terminal : the design review
+
+WHAT HAPPENED
+Always worth stating, because "can we avoid this entirely?" is a valid question. The
+answer is no, for two reasons: the competition *is* a software-defined
+future-engineering mission where the robot must adapt its behavior (surprise rules
+loaded at the start line, per the project history's mission plan), and the vision
+pipeline lives on the Pi. Autonomous muscle with no brain cannot react to pillars or
+markers it never sees. *Rejected: the mission structure itself requires a brain↔muscle
+pipe.*
+
+WHY IT HAPPENED
+Autonomous muscle with no brain cannot react to pillars or markers it never sees.
+*Rejected: the mission structure itself requires a brain↔muscle pipe.*
+
+FIX (took 2 days)
+the chosen design, per the chapter's decision section
+
+---
+
+## v1.6 - MULTI-SENSOR READ LOOP (Day 17-19)
+
+TOTAL ERROR : 4
+SMALL : 3
+BIG : 1
+
+E0038 | v1.6 | BIG | Found Day 17 | Fixed in 3 days | With all three sensors powered simultaneously
+File : sensor_loop.py
+Error : F 4092 L 8190 R 2096
+Terminal : With all three sensors powered simultaneously
+
+WHAT HAPPENED
+With all three sensors powered simultaneously, the first naive build printed ranges like
+`F 4092 L 8190 R 2096` on a bench where the true distances were roughly 900, 450, and
+450 mm. Worse, values changed between identical static cycles, so it was not a fixed
+offset — it was noise shaped like data. Occasionally the whole script froze and the bus
+stayed wedged until we cycled power or ran `i2cdetect -y 1` to kick it.
+
+WHY IT HAPPENED
+A resource conflict: one address, one bus, three devices, with no hardware strapping on
+either family to disambiguate. The bug was not in the driver code — it was in the
+physical layer, present since the first day the sensors were wired, masked by the
+address-scan's blindness.
+
+INVESTIGATION (only for BIG errors)
+We re-read the v1.1 scan log and the moment of insight was ugly: the scan had *never*
+seen more than one 0x29. It could not — an address probe only reports whether the
+address is answered, not by how many devices. Three devices answered 0x29 and the scan
+reported one hit, and we had called that an inventory. The datasheets confirmed the
+mechanism: both the VL53L1X and VL53L0X ship at 7-bit address 0x29 (0x52/0x53 in 8-bit).
+With two devices powered, both decode the address as their own and both drive the ACK
+bit; from that clock edge onward the SDA line state is the electrical OR/conflict of two
+open-drain drivers and the master cannot trust a single bit.
+
+FIX (took 3 days)
+The XSHUT power-gating in `sensor_loop.py`: pull all three XSHUT lines low at boot, then
+power exactly one device per read (`front.value = True` … `front.value = False`, then
+the same for each side). M ≤ 1 powered device is enforced by GPIO, not by hope.
+
+---
+
+E0039 | v1.6 | SMALL | Found Day 17 | Fixed in 3 days | Ctrl-C during a read
+File : sensor_loop.py
+Error : time.sleep(0.1)
+Terminal : Ctrl-C during a read
+
+WHAT HAPPENED
+After Ctrl-C during a read, or after a dropped process, the next run would hang at the
+first I2C transaction until we power-cycled the sensors.
+
+WHY IT HAPPENED
+Non-idempotent power state: an abnormal exit left M = 1 instead of M = 0, and one live
+device holding the line blocks the bus with no watchdog to clear it.
+
+FIX (took 3 days)
+Two changes: the 100 ms all-off settle at boot (the `time.sleep(0.1)` after the XSHUT
+sweep) forces every device back into reset before any transaction, and every read
+function unconditionally powers its device down in the normal path. We accepted that an
+abnormal exit still needs a manual reset — but the boot sweep now makes recovery one
+restart, not one rewire. We should record the detail of how we *found* this, because the
+method is the transferable part. We assumed a wiring problem and reached for the
+multimeter twice before noticing the pattern: the hang only ever followed an interrupted
+run, and only when the interruption happened inside a `read_front()` or `read_side()`
+body — never during the main-loop sleep, and never after a clean Ctrl-C at the `print`
+line. That distribution of symptoms is a fingerprint. An electrical fault would not care
+whether the script was killed mid-function; a state bug does. Once we framed it as "the
+software's exit path was the only difference between runs that hang and runs that
+don't", the fix wrote itself. This is the investigative habit — let the *pattern of
+occurrences* point at the layer — that we carried into every later version, and it is
+worth stating explicitly here because it is the difference between debugging by poking
+and debugging by reasoning.
+
+---
+
+E0040 | v1.6 | SMALL | Found Day 17 | Fixed in 3 days | the contention fix
+File : sensor_loop.py
+Error : time.sleep(0.035)
+Terminal : the contention fix
+
+WHAT HAPPENED
+After the contention fix, roughly 3 readings in every ~4,800 front samples returned −1,
+clustered in runs of one or two.
+
+WHY IT HAPPENED
+The `time.sleep(0.035)` after `start_ranging()` is a hard estimate against a
+*statistical* completion time. Under OS scheduling jitter on the Pi, the sleep
+occasionally ends before the 33 ms budget finishes; the `data_ready` check then fails
+and we correctly return −1. The code is working as written — the number is honest — but
+the design margin is too thin.
+
+FIX (took 3 days)
+Accepted for this version (0.06% miss rate at a bench cadence of 2.4 Hz is harmless),
+and written down as the first thing to improve: replace the fixed sleep with a
+`data_ready` poll with a deadline, or raise the wait to 40 ms. We deliberately did *not*
+fudge the number by retrying silently, because a retry would have doubled the front
+read's contribution to cycle time.
+
+---
+
+E0041 | v1.6 | SMALL | Found Day 19 | Fixed in 1 day | v1.6
+File : sensor_loop.py
+Error : 0
+Terminal : not recorded
+
+WHAT HAPPENED
+Both side channels intermittently printed `0` for a cycle or two when a bench target was
+near the edge of the L0X's 2 m range.
+
+WHY IT HAPPENED
+The VL53L0X returns 0 as its out-of-range / no-target code. It is not a measurement of
+zero millimetres; it is an invalid flag wearing data's clothes. Our `read_side` passes
+it through untouched.
+
+FIX (took 1 day)
+Documented in this version (the console reader must know `0` means "no target"); the
+actual clamp to an explicit invalid flag lands in v1.9, where the left sensor's
+intermittent zeros become a tracked issue.
+
+---
+
+## v1.7 - LED STATUS UI + RACE-START SWITCH INPUT (Day 1)
+
+TOTAL ERROR : 4
+SMALL : 3
+BIG : 1
+
+E0042 | v1.7 | BIG | Found Day 1 | Fixed in 1 day | the first wiring attempt
+File : led_switch.py
+Error : SWITCH 2 PRESSED
+Terminal : the first wiring attempt
+
+WHAT HAPPENED
+On the first wiring attempt, the poll loop printed `SWITCH 2 PRESSED` while nobody was
+touching the button. We counted 9 phantom triggers in a 5-minute idle run. The event log
+showed no pattern — the prints arrived at irregular intervals, seconds apart, sometimes
+two within 100 ms.
+
+WHY IT HAPPENED
+40 minutes, three one-variable experiments. Had we "fixed" the switch by replacing it
+(hypothesis a), we would have shipped a float to the race hall. With no pull, the GPIO
+input's resting potential is undefined. Input leakage and capacitive coupling (from the
+operator's hand, from mains, from the long unshielded wire) supply enough charge to
+swing a high-impedance node across the threshold. The 50 kΩ internal pull-up, once
+engaged, pins the node firmly at 3.3 V with a leakage error of only 0.25 mV (5 µA × 50
+kΩ), and a stray current of a microamp cannot move it off the rail.
+
+INVESTIGATION (only for BIG errors)
+We disconnected the switch from GPIO 16 entirely and left the pin configured as INPUT
+with no pull, then logged raw values at 100 Hz for 5 minutes. The phantom triggers
+*persisted with zero hardware attached* — that immediately ruled out hypotheses (a) and
+(b), because there was no switch and no jumper to be defective. The motor was off,
+ruling out (c) as the sole cause. That left (d) or a floating-pin effect. Re-reading the
+code showed `last` was correctly seeded and updated, so we instrumented the raw value:
+we saw the pin flipping between high and low with no electrical source connected. That
+is the signature of a floating node — the high-impedance input is picking up coupled
+charge from the environment and drifting across the 1.65 V logic threshold. The
+discriminating method is worth recording because we used it again in Error 2 and it
+saved us hours: *change exactly one variable per experiment, and let each experiment
+kill at least one hypothesis*. Experiment A removed the switch (killed a, b). Experiment
+B removed the power to the motor driver (killed c as the sole cause — though we noted
+PWM could still contribute in a noisier environment). Experiment C replaced the human
+hand with an insulated probe held near the pin: the trigger rate jumped immediately,
+which was the clincher — proximity alone, with zero electrical contact, produced edges.
+Only after all three did we commit to the floating-pin explanation and add the pull-up.
+
+FIX (took 1 day)
+One line: `sw.pull = digitalio.Pull.UP`. Re-running the idle test with the pull engaged
+and the switch connected: zero triggers in 10 minutes.
+
+---
+
+E0043 | v1.7 | SMALL | Found Day 1 | Fixed in 1 day | With the pull-up fixed
+File : CHANGE.md
+Error : SWITCH 2 PRESSED
+Terminal : With the pull-up fixed
+
+WHAT HAPPENED
+With the pull-up fixed, one physical press printed `SWITCH 2 PRESSED` two, three,
+sometimes five times. This was the error the short `CHANGE.md` recorded, and it appeared
+immediately after Error 1 was fixed, which felt like moving from one bug straight into
+its sibling.
+
+WHY IT HAPPENED
+When the switch's spring-loaded plunger strikes, the contact mass rebounds (elastic
+collision) and the contacts make and break several times over ~8–18 ms before the spring
+holds them closed. Our sampler was reading at 20 Hz — a 50 ms period — but the *edge
+detector fired on every transition between samples*, and because the bounce train could
+straddle a sample boundary, one press occasionally produced a 0 then a 1 then a 0 across
+successive samples, each interpreted as a separate edge. Level-triggered counting on a
+bouncing contact counts the chatter, not the press. We can quantify exactly how the
+multiplicity arose, because it depends on where the 8–18 ms bounce train landed relative
+to the sample grid. A press at time `t0` produces a train ending at `t0 + 8…18 ms`. The
+sampler reads at multiples of 50 ms. If the *entire* train falls between two samples —
+say the press starts at `t0 = 47 ms` and the train ends at `65 ms`, with samples at 50
+ms and 100 ms — the sample at 50 ms may catch an early rebound as HIGH, then the 100 ms
+sample sees the settled LOW, and one press yields a HIGH→LOW falling edge plus whatever
+the trailing sample saw. The worst observed case — five events from one press — occurs
+when the train straddles two sample boundaries and each crossing looks like a fresh
+transition. Bounce duration measured across 50 presses ranged 8–18 ms with a median of
+12 ms; the 50 ms window is 2.8× the median and 2.5× the worst case, which is why after
+the fix the observed multiplicity dropped from up-to-5 to exactly 1 across 200
+consecutive presses.
+
+FIX (took 1 day)
+The 50 ms debounce window: because the sampler only observes the pin once per 50 ms, and
+the entire bounce train is confined to 8–18 ms, a single press can cross *at most one*
+sample boundary and produce at most one observed falling edge. The window is implemented
+as the poll cadence itself — the sampler is the filter (R2, R5). We verified with the
+same oscilloscope setup that with the switch pressed and held for 200 ms, exactly one
+edge was reported.
+
+---
+
+E0044 | v1.7 | SMALL | Found Day 1 | Fixed in 1 day | bench
+File : led_switch.py
+Error : time.sleep(0.1)
+Terminal : bench
+
+WHAT HAPPENED
+The very first sweep tried to light all five LEDs with no delay — a 5 ms burst — and
+every LED appeared to turn on simultaneously. On the bench it "worked", but we could not
+tell, from 3 m, whether five LEDs lit or one LED lit five times.
+
+WHY IT HAPPENED
+We optimized the sweep for electrical correctness (fast, deterministic) instead of for
+the *observer* (the operator's retina is the verification instrument). The information
+was there; the pacing hid it.
+
+FIX (took 1 day)
+100 ms per LED: `time.sleep(0.1)` inside the sweep loop, total sweep 500 ms. Each step
+is now 5–10× the flicker-fusion period, so the order is legible at 3 m.
+
+---
+
+E0045 | v1.7 | SMALL | Found Day 1 | Fixed in 1 day | the 100-press acceptance test
+File : led_switch.py
+Error : Rapid double-press during verification (near-miss)
+Terminal : the 100-press acceptance test
+
+WHAT HAPPENED
+During the 100-press acceptance test, the operator pressed as fast as possible (~4
+presses per second, 250 ms apart) and one press was *missed* — 99 events for 100
+presses. We nearly shipped a debounce that eats fast presses.
+
+WHY IT HAPPENED
+A 50 ms poll period cannot resolve two events whose intervening release is under 50 ms.
+The debounce window trades *bounce rejection* against *event resolution*: at 20 Hz the
+theoretical maximum distinguishable press rate is ~10 events/s, and 4/s presses with 25
+ms releases exceed what the sampler can resolve.
+
+FIX (took 1 day)
+The fix is a requirement boundary, not a code change. The mission starts on one
+intentional press from the operator, who will not press at 4/s for the race start; the
+20 Hz poll resolves every realistic start scenario. We re-ran the test with presses
+spaced ≥ 100 ms (the real usage pattern): 100 presses, 100 events, zero misses. We
+recorded the 4/s limitation as a documented property of the 50 ms window so it is a
+*known* bound, not a surprise. For the future production poller we noted that a
+timestamp-based debounce (assert stable for 50 ms, then fire) would resolve faster
+sequences while still rejecting bounce — deferred in 5.6, and now justified by data.
+
+---
+
+## v1.8 - STARTUP SELF-TEST SEQUENCE (Day 21-24)
+
+TOTAL ERROR : 4
+SMALL : 3
+BIG : 1
+
+E0046 | v1.8 | BIG | Found Day 21 | Fixed in 4 days | bench
+File : layer4_perception.py
+Error : time.sleep(2.0)
+Terminal : bench
+
+WHAT HAPPENED
+The first draft ran the camera check first, in the main thread: a bare `time.sleep(2.0)`
+standing in for `cv2.VideoCapture(0)` plus warmup, followed by the i2c and serial
+checks. On the bench the console printed nothing for a full 2.0–2.4 s, then dumped all
+three results at once. On the robot with the ESP32 connected, the behavior was worse:
+during those 2+ seconds no packet reached the ESP32, the 200 ms watchdog fired, the
+firmware ran `executeFailsafe()`, and — because the Pi was only *booting* — nobody was
+watching, so the failsafe went unnoticed until the serial ping "passed" and we started
+driving. The robot had failed its own watchdog during its own self-test, silently.
+
+WHY IT HAPPENED
+The camera init latency (`L_cam ≈ 2.0 s`) was placed on the critical path of a sequence
+whose other members (the serial ping) must deliver a packet every 200 ms to satisfy the
+ESP32 watchdog. Sequential placement makes the critical path `S + L_cam`, which
+necessarily exceeds the watchdog budget for any `L_cam > 200 ms`. Mechanism: physical —
+the UVC camera's sensor needs ~2 s to start producing valid frames; logical — the
+script's control flow serialized that physical delay ahead of the watchdog- relevant
+work.
+
+INVESTIGATION (only for BIG errors)
+We measured the camera init on the actual hardware: `time it` around
+`cv2.VideoCapture(0)` plus `isOpened()` showed 1.9–2.4 s across ten cold boots, mean 2.1
+s. So hypothesis (a) was *correct as a measurement* — the camera really is that slow —
+but wrong as a conclusion: "it's just slow" ignores that a 2 s serial gap trips the
+watchdog. Hypothesis (b) we killed by reducing the sleep to 0.5 s in a lab experiment:
+the camera then reported `isOpened()` True but produced black frames for the next 1.5 s
+— the v1.2 lesson (frame 0 is always black) in live form. We cannot fake the warmup.
+Hypothesis (c) we killed by swapping check order: serial-first produced identical 2 s
+dead time, because the sleep was still on the critical path regardless of position. That
+left (d), but reordering alone did not fix the watchdog problem — it merely moved the 2
+s dead gap to the end, where the ESP32 still starved. The discriminating insight came
+from timing arithmetic, not experiment: the sequential design's total was the *sum*
+`t_cam + t_other`, and any sum that includes 2 s of camera time starves the 200 ms
+watchdog *somewhere*. The only designs that respect the watchdog are those where the
+camera time is *off* the serial-delivery path — i.e., a thread. That single realization
+redirected the
+
+FIX (took 4 days)
+" `t = threading.Thread(target=cam_check); t.start()` — spawn the camera check on a
+background thread *before* the fast checks, then `check("i2c")`, `check("serial")`, then
+`t.join()`. The critical path becomes `max(L_cam, S) ≈ 2.0 s`, and — decisively — the
+serial ping now runs at ~300 ms into the boot, inside the watchdog budget. The fix is
+exactly what the short CHANGE.md records: "Ran camera readiness in a background thread
+so other checks proceeded."
+
+---
+
+E0047 | v1.8 | SMALL | Found Day 21 | Fixed in 4 days | While reviewing the threaded draft
+File : self_test.py
+Error : cam_check
+Terminal : While reviewing the threaded draft
+
+WHAT HAPPENED
+While reviewing the threaded draft, we asked: what happens if `cam_check` raises? In the
+snapshot, the camera thread is *not* wrapped in `check()` — it is a bare
+`threading.Thread(target=cam_check)`. We traced the failure mode: if the real
+`_init_camera` ever raised (e.g., `cv2.VideoCapture` returns an unopened capture and
+`isOpened()` itself errors on a bad driver), the exception would propagate inside the
+thread, kill the thread, print a traceback to stderr, and leave `results` with *no "cam"
+key at all*. The verdict renderer would then print only `i2c:` and `serial:` — a silent
+absence, the exact anti-pattern R7 forbids.
+
+WHY IT HAPPENED
+The `check()` factory guards synchronous checks, but the camera was promoted to a thread
+*outside* the factory, and the factory's try/except did not travel with it. Structural:
+the robustness pattern (R7) was applied to every check except the one most likely to
+fail at boot (a camera on a loose connector is our single most common field failure).
+
+FIX (took 4 days)
+Two options, honestly weighed. (a) Wrap the thread body — let the thread store its
+result directly (`results["cam"] = cam_check()` inside the target). (b) Route the camera
+through `check()` too, with the warmup still threaded (`t =
+threading.Thread(target=lambda: check("cam", cam_check))`). We chose the shape where the
+*probe stays a probe* and the *factory stays the factory*: in production, `check("cam",
+layer4_percep.readiness_probe)` and the camera init lives inside a thread in the
+perception layer. For the snapshot we kept `cam_check` as written but documented the
+gap; the acceptance-criteria review flagged it, and we note it here as a
+*known-good-as-of-v1.9* item.
+
+---
+
+E0048 | v1.8 | SMALL | Found Day 23 | Fixed in 2 days | with the ESP32 USB cable *unplugged*
+File : self_test.py
+Error : transmit_command(0.0, 0.0)
+Terminal : with the ESP32 USB cable *unplugged*
+
+WHAT HAPPENED
+During Day 23, with the ESP32 USB cable *unplugged*, the serial check still reported
+PASS. The `transmit_command(0.0, 0.0)` wrote 10 bytes to `/dev/ttyUSB0` successfully —
+Linux accepted the write into the USB serial buffer — and the check recorded True. The
+robot "passed" its serial self-test with no ESP32 on the bus.
+
+WHY IT HAPPENED
+The v1.8 serial check is a one-way probe: send a CRC8 packet and trust that a live ESP32
+received it. A USB-serial bridge acknowledges bytes at the link layer, so a write
+succeeds regardless of whether the ESP32's firmware `loop()` ever read the bytes,
+CRC-checked them, and updated `lastPacketTime`. The CRC8 covers *bit errors in transit*,
+not *reception at the application*. Mechanism: protocol asymmetry — the Pi never asks
+"did you receive?" because the protocol has no acknowledgment field.
+
+FIX (took 2 days)
+Honest partial fix, with the limitation documented: the check still cannot *prove* the
+ESP32 received the packet, but we added a *settle-and- verify* affordance for the human
+— the check now reports the ESP32-side LED state as corroborating evidence (LED2 on the
+ESP32 panel lights only after a valid packet updates `serialOK`, per the firmware's
+`updateAllLEDs()`). We also changed the production boot's failure behavior (already
+present in `main.py`): if the serial probe fails, the boot *halts* with LED4 OFF and The
+true fix — a return telemetry byte from the ESP32 — was deferred (5.6), with the
+`PacketDecoder` already in the codebase awaiting a transmitter.
+
+---
+
+E0049 | v1.8 | SMALL | Found Day 24 | Fixed in 1 day | the coldest boot of Day 24
+File : self_test.py
+Error : t.join()
+Terminal : the coldest boot of Day 24
+
+WHAT HAPPENED
+On the coldest boot of Day 24 (robot sat in a cold workshop overnight), the camera check
+took 2.4 s and the total self-test reached 2.5 s — still inside the 5 s cap, but 25%
+above our 2.0 s estimate, and the verdicts (all fast) were delayed proportionally
+because the *render* waits at the join.
+
+WHY IT HAPPENED
+The total `≈ max(L_cam, S)` inherits all of `L_cam`'s variance, and `L_cam` is
+environment-dependent (temperature, USB topology, driver state). Mechanism: the `max()`
+that protects us from the *sum* does not protect us from the *variance* of the max.
+
+FIX (took 1 day)
+Nothing to fix in the shipped code — the 5 s cap absorbs 2.5 s with 100% margin (R1
+holds at 2× headroom). We changed the *expectation*, not the code: re-baselined the
+budget to `T_total ≤ 3.0 s worst-case`, documented the 150 ms USB-topology penalty, and
+standardized the field procedure to plug the ESP32 *before* power-on so its handshake
+overlaps the Pi's own boot rather than the camera's. A "fix the plan, not the program"
+outcome.
+
+---
+
+## v1.9 - HARDWARE VERIFICATION REPORT (Day 1)
+
+TOTAL ERROR : 3
+SMALL : 2
+BIG : 1
+
+E0050 | v1.9 | BIG | Found Day 1 | Fixed in 1 day | pre-acceptance runs
+File : sensor_loop.py
+Error : time.sleep(0.02)
+Terminal : pre-acceptance runs
+
+WHAT HAPPENED
+During pre-acceptance runs — the warm-up runs before we locked the formal 20 — the left
+VL53L0X (GPIO17) intermittently returned exactly 0 as its range. It was not a crash, not
+an I2C exception, not a timeout; the sensor answered promptly and the value was a clean
+integer zero. Roughly one in several readings on scattered runs. The right VL53L0X on
+the identical circuit never did it in the same sessions. Because nothing threw, the
+v1.8-style check would have logged "present" and moved on, and a zero would have
+silently entered whatever fused perception we build next.
+
+WHY IT HAPPENED
+The VL53L0X reports out-of-range in two legal encodings, and which one appears depends
+on the confidence status of the ranging measurement. Under marginal signal (low target
+albedo, long distance, stray IR from the nearby sensor's emission during the shared
+power cycle), the device occasionally completes with a status that maps to range value 0
+instead of the "max range" wraparound value. There was no hardware fault on the left
+unit — the right unit's identical circuit simply happened to sit in a less noisy photon
+environment. The real defect was in *our* software contract: we consumed the `.range`
+attribute without ever validating its domain, so the sensor's legal "no target" answer
+became an illegal "0 mm wall" assertion in any downstream consumer. A zero millimetre
+reading is not a missing reading; it is an *actively wrong* reading, and the fusion
+layer has no way to tell it apart from a real zero-distance contact. That is why the fix
+had to be at the driver boundary and not at the report layer.
+
+INVESTIGATION (only for BIG errors)
+We did not guess; we instrumented. First, we isolated the sensor physically: XSHUT
+sequencing disabled for the other two, so hypothesis 3 was excluded by construction.
+Second, we logged every raw `.range` value with a timestamp alongside a manual
+tape-measure reference at 100, 300 and 800 mm. Third, we toggled the settle time from 20
+ms to 50 ms for one run set — if hypothesis 2 were true, the zero rate would collapse.
+It did not meaningfully change. Fourth, we probed the sensor's power pin with an
+oscilloscope during forced zero events; no sag below spec was visible, killing
+hypothesis 4. Fifth, we re-read the VL53L0X datasheet behaviour for out-of-range in the
+mode our library selects, and we built a quick empirical test: point the sensor at open
+air beyond its range and count the distribution of returned values. The distribution
+showed the sensor returns 0 for true no-target conditions in a small fraction of reads,
+and a large value (the classic "wraparound" maximum) in the rest — i.e. the 0 is the
+sensor's own legal out-of-range encoding, presented intermittently depending on ambient
+photon noise and target albedo.
+
+FIX (took 1 day)
+Clamp zero to invalid: in the left (and, for symmetry, every) ToF read, a returned 0 is
+translated to `invalid = True` and the distance is set to a non-consumable None, and
+every downstream consumer must check the flag. The report's check-2 note, `clamp 0 =
+invalid`, is the audit trail of that change. The sensor is scored PASS because its
+failure mode is now handled — the version's own lesson statement, "hardware verification
+is only done when failures are handled, not when they stop happening," is literally
+this: we did not make the 0 stop occurring (we could not — it is physics), we made it
+stop *mattering*.
+
+---
+
+E0051 | v1.9 | SMALL | Found Day 1 | Fixed in 1 day | the design review
+File : HARDWARE_REPORT.md
+Error : design rejected: Alternative A — Manual bench verification
+Terminal : the design review
+
+WHAT HAPPENED
+Take a multimeter, an oscilloscope and a protractor, and personally measure each
+component: rail voltages under load, servo pulse widths at the pin, ToF readings against
+a steel ruler. Analysis: this is the gold standard for *absolute* correctness and it
+catches wiring faults software can mask (a floating XSHUT pin that happens to read as
+driven). But it is slow — realistically a day per subsystem — it is not repeatable on
+race day, and it does not scale to a 90-second inspection window. It also cannot run
+unattended. We rejected it as the *primary* gate because the team's scarcest resource
+was calendar days, not certainty; but we kept a single pass of eyeball wiring inspection
+as a precondition, because software cannot prove solder joints.
+
+WHY IT HAPPENED
+It also cannot run unattended. We rejected it as the *primary* gate because the team's
+scarcest resource was calendar days, not certainty; but we kept a single pass of eyeball
+wiring inspection as a precondition, because software cannot prove solder joints.
+
+FIX (took 1 day)
+the chosen design, per the chapter's decision section
+
+---
+
+E0052 | v1.9 | SMALL | Found Day 1 | Fixed in 1 day | the design review
+File : HARDWARE_REPORT.md
+Error : design rejected: Alternative B — The v1.8 skeleton, as-is
+Terminal : the design review
+
+WHAT HAPPENED
+Four coarse checks: I2C present, serial present, camera thread returns, results printed.
+Analysis: it is fast — under 5 seconds — but its coverage is far too low for a phase
+gate. A component can pass "I2C present" and still be broken; the left VL53L0X returning
+0 is exactly such a case. The skeleton could not have caught the very bug that motivated
+this version. It also produces no evidence worth auditing. We rejected it as the gate
+but kept it as the boot-time smoke test, because the race-day requirement is *different*
+from the gate requirement: at the event we need "is the machine alive", at the gate we
+needed "is the machine true".
+
+WHY IT HAPPENED
+The skeleton could not have caught the very bug that motivated this version. We rejected
+it as the gate but kept it as the boot-time smoke test, because the race-day requirement
+is *different* from the gate requirement: at the event we need "is the machine alive",
+at the gate we needed "is the machine true".
+
+FIX (took 1 day)
+the chosen design, per the chapter's decision section
+
+---
+
+## THE ENGINEERING DOCUMENTATION
+
+The errors this phase records that come from ENGINEERING_
+DOCUMENTATION.md and ENGINEERING_PARAMETER_JUSTIFICATION.md,
+not from a CHANGE.md chapter. The docs do not log days, so
+Found Day is n/a and FIX carries no day count.
+
+TOTAL ERROR : 1
+SMALL : 0
+BIG : 1
+
+E0053 | v1 | BIG | Found Day n/a | Fixed in n/a | the engineering documentation
+File : main.py
+Error : the boot probe always failed — the keyword mismatch (FA-1)
+Terminal : the engineering documentation
+
+WHAT HAPPENED
+The boot probe in main.py always halted at 'ESP32 NOT CONNECTED! Fix serial and reboot'
+even with a healthy serial link: _probe_serial() called
+transmit_command(servo_angle_deg=0.0, speed_pct=0.0), but the method signature is
+(servo_angle_deg, motor_speed). Python's TypeError was raised, the probe caught it and
+reported 'serial dead', and the boot sequence fell into the halt loop. The bug was
+invisible in simulation because the keyword mismatch never executed on a path that was
+tested.
+
+WHY IT HAPPENED
+The keyword-argument mismatch (speed_pct vs motor_speed) was swallowed by the probe's
+exception handling, so a healthy link was reported dead.
+
+FIX
+Corrected the keyword to motor_speed=0.0; the probe now exercises the real packet path.
+Prevention: all public cross-layer call signatures were audited against their call sites
+and the boot probe is covered by the integration test.
+
+---
