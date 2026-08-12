@@ -1,0 +1,2200 @@
+PHASE 6 - CONTROL - ERROR CATALOG
+
+ERROR TOTAL : 81
+SMALL : 70
+BIG : 11
+TOTAL ERROR : 615
+PERCENTAGE : 13.17%
+
+------------------------------------------------------------
+HOW TO READ THIS FILE
+1. Every error is real. It was parsed from the CHANGE.md history chapter of
+   the version that hit it (other/history/vX.Y/CHANGE.md, section 9). Nothing
+   here was invented to fill a quota.
+2. Errors are grouped by version, in the order the versions happened.
+3. E-numbers restart at E0001 for each phase file.
+4. SMALL errors are one-line fixes; BIG errors needed an investigation.
+5. 'Found Day N' is the day the error was first observed, as recorded in the
+   chapter. 'Fixed in N days' is the time between that day and the last
+   recorded day of the version.
+6. The FIX section is the fix exactly as the chapter documented it.
+------------------------------------------------------------
+ANATOMY OF ONE ERROR ENTRY
+
+E0001 | v6.0 | SMALL or BIG | Found Day N | Fixed in N days | Terminal
+File : the file or files involved, as named in the chapter
+Error : the error text, quoted from the chapter
+Terminal : where the error was observed, from the chapter
+
+WHAT HAPPENED
+What we saw - the symptom, from the chapter's Symptom section.
+
+WHY IT HAPPENED
+The root cause, from the chapter's Root cause section.
+
+INVESTIGATION (only for BIG errors)
+How we found it - the chapter's Investigation section.
+
+FIX (took N days)
+The fix, from the chapter's Fix section.
+
+------------------------------------------------------------
+THE ERROR CATALOG
+
+## v6.0 - PID SPEED CONTROL (Day 148-150)
+
+TOTAL ERROR : 9
+SMALL : 8
+BIG : 1
+
+E0001 | v6.0 | BIG | Found Day 148 | Fixed in 3 days | the first loop build with the cruise-tuned gains
+File : pid_speed.py
+Error : the seed's error, reproduced within the first hour — the low-speed oscillation
+Terminal : the first loop build with the cruise-tuned gains
+
+WHAT HAPPENED
+Day 148, the first loop build with the cruise-tuned gains: at the start-line approach
+(15% speed), the speed oscillated with a ~300 ms period — the velocity state swinging
+±30% around the target, the throttle command visibly hunting between the deadband's
+edges. The oscillation was exactly the seed's error, and the first test reproduced it
+before the loop had been tuned further.
+
+WHY IT HAPPENED
+The gains encoded the cruise operating point and were applied at the creep operating
+point, where the plant's gain is a fraction of the cruise gain and the feedback's SNR is
+a fraction of the cruise SNR. The loop was correctly tuned for a plant that did not
+exist at the operating point it was running at.
+
+INVESTIGATION (only for BIG errors)
+The period was the diagnosis: ~300 ms is the stiction's relaxation-oscillation timescale
+— the plant's behaviour at the deadband's edge, not the loop's tuning. The analysis had
+predicted it (the deadband's gain collapse + the feedback's SNR collapse at the same
+speeds), and the first test confirmed the prediction: the fixed cruise gains commanded
+the throttle into the deadband's pockets, the plant responded erratically (0 or 60 mm/s
+depending on the wheel's stiction pocket), and the loop chased its own erratic plant —
+the limit cycle. The D-term's contribution was real but secondary: the derivative of a
+±30% oscillating error amplified the hunting.
+
+FIX (took 3 days)
+The schedule (R5): lower gains at low speed, anchored at the measured creep operating
+point. The oscillation vanished (the loop's command settled into the deadband's edge
+smoothly, the velocity state holding the target within ±5%). The fixed-gain counter-case
+was preserved as the regression's reference — the failure, documented and repeatable.
+
+---
+
+E0002 | v6.0 | SMALL | Found Day 149 | Fixed in 2 days | the first windup test
+File : pid_speed.py
+Error : the un-clamped integral's lurch — the start-line hold's windup
+Terminal : the first windup test
+
+WHAT HAPPENED
+Day 149, the first windup test (the robot restrained against the start line at full
+command for 5 s, then released): the release produced a lurch — the robot jumped forward
+at ~2.5× the target speed, the integral's accumulated contribution having overwhelmed
+the P-term's response. The lurch would have been a crash at a real start line.
+
+WHY IT HAPPENED
+The integral's accumulation was unbounded during the saturated hold. The windup is not
+an integral-gain problem — it is an integral-*state* problem: the accumulator's value
+during saturation is a lie about the disturbance (the robot is not moving because it is
+*restrained*, not because the throttle is insufficient), and the loop's history was
+storing the lie.
+
+FIX (took 2 days)
+The shipped clamp: the accumulator bounded at ±30, so the integral's contribution is
+bounded by design — the hold's accumulation stops at the clamp, and the release's
+contribution is the clamp's value, not the hold's full area. The re-test: the release's
+blip 2% of target (AC4). The clamp's size (30) was verified against the race's worst
+windup scenarios (the start-line hold, the deep-sag saturation) — the clamp's value is a
+design statement, sized to the physical scenarios, not a round number.
+
+---
+
+E0003 | v6.0 | SMALL | Found Day 149 | Fixed in 2 days | afternoon
+File : pid_speed.py
+Error : the derivative kick — the step target's spike
+Terminal : afternoon
+
+WHAT HAPPENED
+Day 149 afternoon, the first step-response test with the D-term active: the target
+stepped from 0 to 60% speed, and the command spiked to the throttle's maximum for one
+frame — the derivative term's instantaneous response to the step. The spike was one
+frame long (10 ms) and invisible in the settled behaviour (AC1 passed despite it), but
+the journal records it as a failure: a one-frame full-throttle spike at every target
+change is a mechanical shock the chassis and the mission both pay for.
+
+WHY IT HAPPENED
+The derivative's input was the error, and the error's step was not the plant's motion.
+The D-term is meant to damp the plant's velocity; differentiating the *target's* changes
+was a different operation entirely.
+
+FIX (took 2 days)
+Two-part. First, the rate-limit on the target (R4): the target now ramps at the loop's
+commanded rate, so the error never steps — the derivative sees a bounded slope. Second,
+the derivative's input moved to the measurement side (derivative on the velocity state's
+change, not the error's) — the structural removal of the kick. The re-test: the step's
+command profile showed no spike, the settle unchanged.
+
+---
+
+E0004 | v6.0 | SMALL | Found Day 150 | Fixed in 1 day | during the integration's stress test
+File : pid_speed.py
+Error : if dt > 0 else 0.0
+Terminal : during the integration's stress test
+
+WHAT HAPPENED
+Day 150, during the integration's stress test (the pipeline under a deliberately loaded
+cycle — the localization suite and the loop running together): a scheduler hiccup
+produced a frame with dt = 0 (the tick fired twice in one cycle), and the derivative
+term — before the guard was in place — divided by zero, producing a NaN command that
+propagated into the throttle's driver for one frame before the watchdog caught it.
+
+WHY IT HAPPENED
+The derivative's mathematics assumes dt > 0, and the scheduler's reality includes dt = 0
+frames. The loop's contract with its environment (the dt's validity domain) was
+unwritten until the near-miss.
+
+FIX (took 1 day)
+The shipped guard, the NaN-check in the driver's clamp (a NaN fails the comparison and
+is replaced by the previous command), and the stress test (the deliberately loaded cycle
+with the dt = 0 injection) in the regression suite.
+
+---
+
+E0005 | v6.0 | SMALL | Found Day 149 | Fixed in 2 days | evening
+File : pid_speed.py
+Error : the tuning's circularity — the loop's gains tuned against the loop's own output
+Terminal : evening
+
+WHAT HAPPENED
+Day 149 evening, a review of the tuning logs: the initial gains had been tuned by
+adjusting them while watching the loop's step response — the classic hand-tuning loop —
+and the resulting gains, while acceptable on the lab floor, carried no traceable
+relationship to the plant's measured reality. The review's question: 'if the floor
+changes, what breaks first?' could not be answered from the gains alone.
+
+WHY IT HAPPENED
+The tuning process had skipped the plant measurement, jumping from 'needs a loop' to
+'make it look good'. The plant's model (the 140 ms pole, the duty-to-speed gains, the
+deadband's edge) was known *after* the first tuning round, not before it — the order was
+inverted.
+
+FIX (took 2 days)
+The retuning, in the right order: the plant measured first (the Day 148 bench), the
+gains derived from the model and the margin requirement, the hand-tuning reduced to a
+final sanity check within the derived values. The gains' provenance was written into the
+integration's configuration comments (the plant measurement, the margin, the schedule's
+anchors) — the control phase's first provenance rule, inherited from the phase that
+taught it.
+
+---
+
+E0006 | v6.0 | SMALL | Found Day 148 | Fixed in 3 days | the design review
+File : pid_speed.py
+Error : design rejected: Alternative A — Keep the open-loop throttle (do nothing)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the status quo, and its case is honest: the open loop had driven the robot
+through five phases. Its case against, measured on Day 148: the v1.x logs' speed scatter
+at constant duty was ±18% across the battery's discharge — the loop's disturbance
+budget, quantified. The mission's speed targets (the trajectory layer's profiles) would
+be meaningless under an ±18% execution error: a corner approached at 40% faster than
+planned is a corner entered at the wrong speed, and the phase's own corner margins had
+no room for it. Effort: zero. Robustness: 2/5. Verdict: rejected.
+
+WHY IT HAPPENED
+Verdict: rejected.
+
+FIX (took 3 days)
+replaced by Alternative C — The PID on the fused velocity state (chosen)
+
+---
+
+E0007 | v6.0 | SMALL | Found Day 148 | Fixed in 3 days | the design review
+File : pid_speed.py
+Error : design rejected: Alternative B — Wheel-encoder speed feedback (the v1.x encoders)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the encoders exist, and their speed estimate is direct (wheel rotations →
+speed). The case against, from the phase's own v1.x notes: slip. The 4WS robot's wheels
+slip on the venue's matte floor under acceleration and in corners (the v6.8 story's
+understeer is this physics), and a slipping wheel's encoder *under-reports* speed
+exactly when the robot is accelerating hardest — the loop would push harder into the
+slip, a positive-feedback spiral. The UKF's fused velocity (wall-anchored, IMU-informed)
+does not have this failure: the walls and the IMU witness the true motion even when the
+wheels lie. Effort: low. Robustness: 2/5 (slip-vulnerable). Verdict: rejected as the
+primary; the encoders remain the maintenance cross-check (v5.8's deferred item).
+
+WHY IT HAPPENED
+The UKF's fused velocity (wall-anchored, IMU-informed) does not have this failure: the
+walls and the IMU witness the true motion even when the wheels lie. Verdict: rejected as
+the primary; the encoders remain the maintenance cross-check (v5.8's deferred item).
+
+FIX (took 3 days)
+replaced by Alternative C — The PID on the fused velocity state (chosen)
+
+---
+
+E0008 | v6.0 | SMALL | Found Day 148 | Fixed in 3 days | the design review
+File : pid_speed.py
+Error : design rejected: Alternative D — Feedforward-only speed control (command the duty the mapping predicts, calibrated per battery)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the mapping's battery dependence could be pre-compensated — measure the pack
+voltage (the ESP32's telemetry) and scale the duty. The case against: the mapping is
+*not* just battery-dependent — it is load-dependent (slope, floor), and the load is not
+telemetry-visible. A feedforward-only scheme is the open loop with a better mapping: it
+cancels the *known* disturbances and ignores the *measured* ones. Its one real merit: a
+*feedforward term* inside a feedback loop (the mapping as the controller's starting
+point, the PID refining from there) reduces the integral's work — the hybrid is the
+standard design, and the journal records it as the accepted refinement once the loop's
+basics are proven. Effort: medium. Robustness: 3/5 alone, 5/5 as the hybrid's
+feedforward. Verdict: rejected as the primary, adopted as the future refinement
+(recorded in the bridge).
+
+WHY IT HAPPENED
+Verdict: rejected as the primary, adopted as the future refinement (recorded in the
+bridge).
+
+FIX (took 3 days)
+replaced by Alternative C — The PID on the fused velocity state (chosen)
+
+---
+
+E0009 | v6.0 | SMALL | Found Day 148 | Fixed in 3 days | the design review
+File : pid_speed.py
+Error : design rejected: Alternative E — Model-predictive or LQR speed control
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the 'proper' state-space answer for a linear plant with constraints. The case
+against, in this system: the plant is first-order-ish (the LQR's model is overkill for
+one state), the constraints (the throttle's limits, the jerk limit — v6.8's domain) are
+handled by the clamps and the ramp limiter the PID already has, and the phase's priority
+is *robust simplicity* — a loop every future engineer can reason about. Effort: high.
+Robustness: 4/5. Verdict: rejected for this version; recorded as the theoretical upgrade
+if the plant's behaviour ever outgrows the PID's assumptions.
+
+WHY IT HAPPENED
+Verdict: rejected for this version; recorded as the theoretical upgrade if the plant's
+behaviour ever outgrows the PID's assumptions.
+
+FIX (took 3 days)
+replaced by Alternative C — The PID on the fused velocity state (chosen)
+
+---
+
+## v6.1 - PID SERVO POSITION (Day 151-153)
+
+TOTAL ERROR : 7
+SMALL : 6
+BIG : 1
+
+E0010 | v6.1 | BIG | Found Day 151 | Fixed in 3 days | bench
+File : pid_servo.py
+Error : the seed's error, reproduced on the first day — the 5° overshoot
+Terminal : bench
+
+WHAT HAPPENED
+Day 151, the first heading-step test with the open-loop command (the status quo,
+preserved as the baseline): a 10° commanded heading change produced a heading that
+overshot by ~5° before settling — the corner-entry logs' signature, reproduced
+deterministically in a minute. The servo's angle (the bench rig's pot) showed the
+mechanism directly: the horn swept past the target and oscillated back, the gear train's
+inertia carrying it through the command.
+
+WHY IT HAPPENED
+The steering was open-loop: the command was trusted, the plant's overshoot unmeasured
+and uncompensated. The 5° was not a mystery or slop — it was the open loop's signature,
+exactly as the speed loop's ±18% had been the throttle's.
+
+INVESTIGATION (only for BIG errors)
+The rig's data was the diagnosis: the servo's own angle overshot the command — the
+servo's *internal* loop had overshot, before any 4WS amplification. The MG995's
+gear-train inertia and its internal loop's damping are the plant's properties: on a step
+command, the horn accelerates, the inertia carries it past the target, and the internal
+loop pulls it back — the overshoot is the plant's character, present at the servo,
+amplified by the kinematics. The phase's own v1.x bench had measured this character (the
+first-order-with-overshoot response) and no loop existed to handle it.
+
+FIX (took 3 days)
+The loop's closure (the chosen structure), with the D-term as the damping (the
+overshoot's decay: kd = 0.25, tuned against the measured response) and the rate limit as
+the protection. The re-test: the same 10° step settled with 0.8° overshoot — the seed's
+number reduced by an order of magnitude.
+
+---
+
+E0011 | v6.1 | SMALL | Found Day 151 | Fixed in 3 days | afternoon
+File : pid_servo.py
+Error : the P-only detour — the minimal loop that oscillated
+Terminal : afternoon
+
+WHAT HAPPENED
+Day 151 afternoon, the first closed-loop build (the P-only variant on the filtered
+heading, Alternative B): with kp high enough to correct the heading errors at the
+phase's speeds, the step response oscillated — the heading ringing at ~2 Hz around the
+target for several seconds before settling. The loop was worse than the open loop it
+replaced.
+
+WHY IT HAPPENED
+A feedback loop without a damper cannot control an underdamped plant at the bandwidth
+the plant demands. The P-only structure lacks the derivative's anticipation; the plant's
+inertia and the loop's latency convert the correction into an oscillation.
+
+FIX (took 3 days)
+The D-term's addition (the chosen structure's damping), and the loop's redesign around
+the plant's measured character. The re-test: the ring gone, the settle clean.
+
+---
+
+E0012 | v6.1 | SMALL | Found Day 152 | Fixed in 2 days | the saturation test
+File : pid_servo.py
+Error : self.integral += err * dt
+Terminal : the saturation test
+
+WHAT HAPPENED
+Day 152, the saturation test (AC4's first run): a sustained 10 s lock at the ±35° clamp
+(the hard turn's hold), then release — the loop's response to the release showed a slow
+drift before settling, the command hunting around the target for ~1.5 s. Not a lurch
+(the output clamp bounded it), but a visible settling tail — the integral's accumulated
+history driving the command after the saturation released.
+
+WHY IT HAPPENED
+The integral's unbounded accumulation at saturation — the exact windup v6.0's clamp
+taught the phase to fear, present in this loop because the shipped code's integral has
+no clamp. The version's honest position: the integral's unboundedness is a *named,
+documented debt* — the output clamp is the first defence, and the conditional
+integration (the freeze-on-saturation of v6.5) is the scheduled completion.
+
+FIX (took 2 days)
+Within this version's scope: the saturation test's documentation (the tail's expected
+behaviour, the clamp's bound), and the windup scenario's formal hand-off to v6.5's tests
+(the sustained lock, the corner's long saturation). The loop's behaviour at the release
+— the tail bounded by the clamp — is the version's accepted, documented state.
+
+---
+
+E0013 | v6.1 | SMALL | Found Day 152 | Fixed in 2 days | afternoon
+File : pid_servo.py
+Error : the rate limit's first value — a limit that clipped the loop's own corrections
+Terminal : afternoon
+
+WHAT HAPPENED
+Day 152 afternoon, the rate limit's first integration: the limit was set conservatively
+(half the servo's measured slew, 'to be safe'), and the corner-entry test showed the
+loop's corrections being clipped — the commanded angle lagging the loop's intent, the
+heading error growing while the limit held the command back. The loop was stable and
+*slow*: the safe limit had made the robot's steering lazy.
+
+WHY IT HAPPENED
+The rate limit was set below the plant's measured maximum, and a below-capability limit
+clips the loop's legitimate authority. The limit's purpose (protecting the plant from
+the *loop's* excitation) was confused with a general caution.
+
+FIX (took 2 days)
+The limit set at the plant's measured maximum slew (the ~300 ms full-travel response)
+with a small margin — the plant's capability, not a guess below it. The re-test: the
+corner's entry corrections unclipped, the loop's authority restored, and the excitation
+test (AC3) still clean — the limit's purpose (no excitation) intact at the correct
+value.
+
+---
+
+E0014 | v6.1 | SMALL | Found Day 153 | Fixed in 1 day | the long-run tracking test
+File : pid_servo.py
+Error : the model estimate's drift — the inner loop's residual, found by the heading's outer truth
+Terminal : the long-run tracking test
+
+WHAT HAPPENED
+Day 153, the long-run tracking test: over a 3-minute figure-eight session, the estimated
+servo angle (the response model's output) drifted from the heading-implied steering —
+the model's residual growing from ~0.5° at the session's start to ~3° by the end, the
+inner loop believing the servo was where the model said while the heading's outer truth
+disagreed.
+
+WHY IT HAPPENED
+The response model is a fixed approximation of a temperature-varying plant; the inner
+loop's feedback inherits the model's residual, and no check compared the estimate
+against the outer truth until the session's end.
+
+FIX (took 1 day)
+Two-part. First, the *observation*: the inner estimate is now compared against the
+heading-implied steering on a sliding window (the audit's mean test, v5.8's structure) —
+a residual beyond ~1° flags the model's drift to the pit crew. Second, the *correction*:
+the drift is absorbed by the outer loop's authority (the heading's correction through
+the target's generation) — the cascade's design intent, now verified by the drift test.
+The 3-minute session's drift: flagged at 2° (the window's trigger), bounded by the outer
+loop, and documented as the sensor upgrade's (Alternative E) motivation.
+
+---
+
+E0015 | v6.1 | SMALL | Found Day 151 | Fixed in 3 days | the design review
+File : pid_servo.py
+Error : design rejected: Alternative B — P-only loop on the filtered heading
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the minimal loop — kp on the heading error, the servo angle as the output. The
+case for: one gain, one test. The case against, measured on Day 151: with kp high enough
+to correct the heading errors at the phase's speeds, the loop's bandwidth pushed against
+the dead time's phase budget and the filter's lag, and the step response oscillated —
+the P-only loop corrected the overshoot *after* the fact, never damping the servo's
+inertia itself. The heading's filter lag (the UKF's heading dynamics) added its own
+delay, and the loop's phase margin vanished. The 5° overshoot became a 4° residual
+oscillation. Effort: low. Robustness: 2/5. Verdict: rejected — the loop needs the
+damper, not just the gain.
+
+WHY IT HAPPENED
+The case against, measured on Day 151: with kp high enough to correct the heading errors
+at the phase's speeds, the loop's bandwidth pushed against the dead time's phase budget
+and the filter's lag, and the step response oscillated — the P-only loop corrected the
+overshoot *after* the fact, never damping the servo's inertia itself. Verdict: rejected
+— the loop needs the damper, not just the gain.
+
+FIX (took 3 days)
+replaced by Alternative C — The PID with the D-term and the rate limit (chosen)
+
+---
+
+E0016 | v6.1 | SMALL | Found Day 151 | Fixed in 3 days | the design review
+File : pid_servo.py
+Error : design rejected: Alternative D — Feedforward-only steering compensation (pre-map the servo's response, command the overshoot's inverse)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: model the servo's step response and pre-distort the command so the plant's
+overshoot cancels — the open loop with a better mapping. The case against: the servo's
+response is load-dependent (the steering's load varies with speed, floor, and the 4WS
+geometry), and a fixed pre-distortion is wrong wherever the load differs from the
+model's; the feedback loop handles the load's variation by *measurement*, which no
+pre-distortion can. Its one real merit — the feedforward as a *term inside* the loop
+(v6.3's work) — is recorded for the next version. Effort: medium. Robustness: 3/5 alone.
+Verdict: rejected as the primary; the feedforward's arrival is v6.3's story.
+
+WHY IT HAPPENED
+Verdict: rejected as the primary; the feedforward's arrival is v6.3's story.
+
+FIX (took 3 days)
+replaced by Alternative C — The PID with the D-term and the rate limit (chosen)
+
+---
+
+## v6.2 - STANLEY STEERING CONTROL (Day 154-156)
+
+TOTAL ERROR : 9
+SMALL : 8
+BIG : 1
+
+E0017 | v6.2 | BIG | Found Day 154 | Fixed in 3 days | the first build with the raw law
+File : stanley.py
+Error : the seed's error, reproduced on the first start-straight test — the launch slalom
+Terminal : the first build with the raw law
+
+WHAT HAPPENED
+Day 154, the first build with the raw law (no ks): the start-straight test — the robot
+launched from standstill with a 60 mm crosstrack error — produced the slalom: the first
+command at full lock (~90°), the robot's first metre a series of s-curves as the speed
+loop accelerated into the corrections. The command's first samples were the diagnosis on
+sight: atan2(0.75·0.06, 0) = atan2(0.045, 0) = 90° — full lock for a 60 mm error.
+
+WHY IT HAPPENED
+The law's denominator lacks a floor at standstill. The velocity-scaling (the crosstrack
+term's gain ∝ 1/v) is the law's stability mechanism at speed, and at v = 0 it is
+division by the crosstrack error's *rate* — which is zero until the robot moves. The
+term's authority at standstill must be bounded by the geometry of what a standstill
+correction can do (nothing, until motion), and the raw law had no such bound.
+
+INVESTIGATION (only for BIG errors)
+The arithmetic was the diagnosis: the raw law's denominator (v) is zero at standstill,
+so the term's argument k·e/v is infinite for any nonzero error — the atan2's output
+saturates to ±π/2, full lock, regardless of the error's size. The slalom's mechanism:
+the launch's first correction at full lock, the robot's motion building speed as the
+correction took effect, the error's sign flipping, the next correction at full lock the
+other way — the speed loop and the lateral law fighting through the launch. The phase's
+own prediction (v6.0's low-speed lesson, v1.x's start-line notes) had named the regime;
+the raw law's denominator had not been given the floor its analysis demanded.
+
+FIX (took 3 days)
+The ks floor: the denominator v + ks, with ks = 0.1 m/s — the standstill term bounded by
+atan2(k·e, 0.1) ≈ 40-60° for the launch's typical errors, the transition into the
+speed-scaled regime continuous in v. The re-test: the launch's first correction ~45°,
+the slalom absent, the robot's first metre straight (AC2). The ks = 0 counter-case
+preserved as the regression's reference.
+
+---
+
+E0018 | v6.2 | SMALL | Found Day 155 | Fixed in 2 days | the summing test
+File : stanley.py
+Error : the sign's fight — the summing test that failed on Day 155
+Terminal : the summing test
+
+WHAT HAPPENED
+Day 155, the summing test (a synthetic case: the robot pointed correctly along the lane,
+50 mm left of centre — heading error zero, crosstrack error positive): the command came
+out −0.03 rad — steering *away* from the centre. The law's two terms had been summed,
+and the crosstrack term's sign had pointed the wrong way.
+
+WHY IT HAPPENED
+A convention mismatch between the input's producer (the pipeline's positive-left) and
+the law's internal assumption (positive-right, the steering's direction), introduced at
+the boundary without an audit. The summing test — a synthetic case with a known expected
+command — was the only test that could see it: each term alone looked right, the sum was
+wrong.
+
+FIX (took 2 days)
+The boundary's sign mapping: the crosstrack error's sign flipped at the conversion (the
+law's internal convention, documented in the boundary's comment), and the summing test
+(the synthetic case, the expected command's direction asserted) joined the regression.
+The re-test: the 50 mm-left case commanded the negative (rightward) correction, the law
+converging the robot to the centre (AC1's test passed with the sign fixed).
+
+---
+
+E0019 | v6.2 | SMALL | Found Day 155 | Fixed in 2 days | afternoon
+File : stanley.py
+Error : the missed conversion — the metres that were millimetres
+Terminal : afternoon
+
+WHAT HAPPENED
+Day 155 afternoon, the straight-line convergence test's first run: the crosstrack error
+converged — and then *overshot* past the centre by 40 mm, oscillating around it with a
+~1 s period before settling. The behaviour was the law's, but the numbers were wrong:
+the convergence was too aggressive for the geometry.
+
+WHY IT HAPPENED
+The boundary conversion (mm → m) was omitted, and the law's mathematics — correct in SI
+units — was fed the pipeline's millimetres. The 1000× scale error was invisible in the
+law itself (the law's form is unit-agnostic) and visible only against the geometry's
+expected command.
+
+FIX (took 2 days)
+The boundary's conversion (the division by 1000, with the unit in the boundary's
+comment), and the unit check (the synthetic case's expected command, computed by hand
+from the geometry) added to the summing test. The re-test: the convergence's overshoot
+gone (6%, AC1), the settling clean.
+
+---
+
+E0020 | v6.2 | SMALL | Found Day 156 | Fixed in 1 day | the corner tracking test
+File : stanley.py
+Error : the corner's inside margin — the law's bounded response was almost not enough
+Terminal : the corner tracking test
+
+WHAT HAPPENED
+Day 156, the corner tracking test (AC3's first run): through the v5.3 turn geometry at
+the corner speed, the controller tracked without oscillation — but the inside margin
+(the robot's distance from the corner's inner wall) dipped to 38 mm against the phase's
+50 mm minimum. No crash, no oscillation — and a margin the pose layer's own corner work
+(v5.4) had set as the floor.
+
+WHY IT HAPPENED
+The gain k was derived from the straight's convergence requirement and applied to the
+corner's geometry, where the lane's centre moves with the curvature. The law's
+convergence rate — the straight's sufficient rate — was the corner's marginal rate. The
+journal's honest framing: the law's structure was right; the gain's *operating-point
+coverage* was the gap — the exact gap v6.4's speed adaptation (and v6.3's feedforward
+anticipation) exist to close.
+
+FIX (took 1 day)
+Within this version's scope: the corner's entry speed set to the corner profile (the
+mission's corner speed, the v6.8 story's eventual home), the heading term's interim
+source smoothed (the course rules' tangent ramped at the corner's entry, not stepped),
+and the margin's test re-run: the dip raised to 47 mm — inside the floor with the
+margin's slack recorded as the feedforward's (v6.3) and the scheduling's (v6.4)
+responsibility.
+
+---
+
+E0021 | v6.2 | SMALL | Found Day 156 | Fixed in 1 day | afternoon
+File : stanley.py
+Error : the chain's first integration — the Stanley command fighting the servo loop's rate limit
+Terminal : afternoon
+
+WHAT HAPPENED
+Day 156 afternoon, the two loops' first series integration (AC4): the corner's entry
+produced a Stanley command step — and the v6.1 loop's rate limit (the servo's measured
+slew, v6.1's Error 4 lesson) held the command back, the servo lagging the law's intent
+by ~150 ms through the entry. The heading's correction arrived late, the margin's dip
+(Error 4's) compounded.
+
+WHY IT HAPPENED
+The chain's boundary lacked the command shaping (the target's rate limit) that the
+plant's capability demands — the v6.1 rate limit protects the plant from the loop, but
+nothing protected the loop from the law's steps.
+
+FIX (took 1 day)
+The chain's boundary gained its own rate shaping: the Stanley command ramped at the
+plant's capability (the same limit the servo loop uses, applied to the law's target
+before the loop), so the law's intent and the plant's execution are aligned. The
+re-test: the entry's correction arrived without the 150 ms lag's compounding, the
+margin's dip back to the Error 4 baseline, and the chain's settling clean (AC4).
+
+---
+
+E0022 | v6.2 | SMALL | Found Day 154 | Fixed in 3 days | the design review
+File : stanley.py
+Error : design rejected: Alternative A — Proportional crosstrack only (the wall-following fudge, formalised)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the phase's historical approach — the steering proportional to the crosstrack
+error — formalised as δ = kp·e. The case for: one gain, the v1.x lineage. The case
+against, measured on Day 154: at the corner's exit, the proportional term's unbounded
+authority commanded large corrections that the steering loop executed, overshooting the
+centre (the atan2's saturation is precisely the missing piece); and the proportional
+term has no heading correction — the robot's pointing error is invisible to it, so the
+robot converges to the centre while pointed across the lane, drifting in the process.
+Effort: low. Robustness: 2/5. Verdict: rejected — the law's structure (the heading term
++ the saturated crosstrack term) is the standard for a reason.
+
+WHY IT HAPPENED
+The case against, measured on Day 154: at the corner's exit, the proportional term's
+unbounded authority commanded large corrections that the steering loop executed,
+overshooting the centre (the atan2's saturation is precisely the missing piece); and the
+proportional term has no heading correction — the robot's pointing error is invisible to
+it, so the robot converges to the centre while pointed across the lane, drifting in the
+process. Verdict: rejected — the law's structure (the heading term + the saturated
+crosstrack term) is the standard for a reason.
+
+FIX (took 3 days)
+replaced by Alternative C — The Stanley law (chosen)
+
+---
+
+E0023 | v6.2 | SMALL | Found Day 154 | Fixed in 3 days | the design review
+File : stanley.py
+Error : design rejected: Alternative B — Pure-pursuit with a lookahead point
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the classic alternative — pick a point ahead on the path's centreline at a
+lookahead distance, steer toward it (the arc's curvature to the point). The case for:
+the lookahead's geometry is intuitive, and the planner (v6.6) is building the path the
+pursuit would track. The case against, in this system: the path's centreline does not
+exist yet (v6.6's work), the pursuit's curvature-to-point is a geometric approximation
+(the arc's chord), and the phase's immediate need is the *lane-relative* correction (the
+crosstrack error from the pipeline) — Stanley's inputs are the pipeline's products, the
+pursuit's input (the path) is not. The pursuit is recorded as the planner's companion
+(v6.7's splines will compute the curvatures the pursuit would use). Effort: medium.
+Robustness: 3/5 without a path. Verdict: rejected for this version; recorded for the
+planner's era.
+
+WHY IT HAPPENED
+Verdict: rejected for this version; recorded for the planner's era.
+
+FIX (took 3 days)
+replaced by Alternative C — The Stanley law (chosen)
+
+---
+
+E0024 | v6.2 | SMALL | Found Day 154 | Fixed in 3 days | the design review
+File : stanley.py
+Error : design rejected: Alternative D — LQR on the lateral dynamics (the bicycle model's full state feedback)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the 'proper' state-space answer — the heading error, the crosstrack error, and
+the yaw rate as states, the steering as the input, the gains from the Riccati solution.
+The case against, in this system: the model's parameters (the bicycle model's cornering
+stiffnesses — the 4WS robot's tyre behaviour) are unknown and speed-dependent (the v6.8
+story's grip budget), and the LQR's gains would be as measured as the model's — the
+Stanley law's two parameters achieve the same convergence with a tenth of the model's
+demands. The LQR is recorded as the theoretical refinement if the corner performance
+ever demands it. Effort: high. Robustness: 3/5 (model-dependent). Verdict: rejected for
+this version.
+
+WHY IT HAPPENED
+Verdict: rejected for this version.
+
+FIX (took 3 days)
+replaced by Alternative C — The Stanley law (chosen)
+
+---
+
+E0025 | v6.2 | SMALL | Found Day 154 | Fixed in 3 days | the design review
+File : stanley.py
+Error : design rejected: Alternative E — The heading-only controller (the v6.1 loop alone, fed the desired heading)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the minimal lateral control — the desired heading's corrections (the planner's
+targets) through the steering loop, no crosstrack term. The case against, measured on
+Day 154: the crosstrack error is *unobservable* to the heading-only loop — a robot
+pointed correctly along the lane with a 50 mm offset would hold the offset forever (the
+heading loop's perfect tracking of a heading that is parallel-but-offset). The
+crosstrack term is the lateral law's point. Effort: low. Robustness: 1/5 (cannot
+converge). Verdict: rejected.
+
+WHY IT HAPPENED
+Robustness: 1/5 (cannot converge). Verdict: rejected.
+
+FIX (took 3 days)
+replaced by Alternative C — The Stanley law (chosen)
+
+---
+
+## v6.3 - FEEDFORWARD STEERING (Day 157-159)
+
+TOTAL ERROR : 7
+SMALL : 6
+BIG : 1
+
+E0026 | v6.3 | BIG | Found Day 157 | Fixed in 3 days | the first build with the full feedforward
+File : feedforward.py
+Error : the seed's error, reproduced on the first test — the sharp-corner overshoot
+Terminal : the first build with the full feedforward
+
+WHAT HAPPENED
+Day 157, the first build with the full feedforward (w = 1): the sharpest measured
+corner's test produced the overshoot — the robot's heading blew past the corner's exit
+tangent by ~6° before the feedback's correction (arriving late, as always) pulled it
+back, and the inside margin's dip reappeared on the opposite side (the robot's nose
+swinging wide at the exit). The command's log was the diagnosis on sight: the feed
+term's 57° saturating the ±35° clamp through the corner's body.
+
+WHY IT HAPPENED
+The feedforward's authority was absolute — the estimate's full demand, unblended,
+uncorrected, and physically unbounded at the sharpest geometry. The estimate's error and
+the kinematics' factor's error entered the command at full weight, and the command's
+saturation converted the anticipation into the overshoot.
+
+INVESTIGATION (only for BIG errors)
+The arithmetic was the diagnosis: the sharpest corner's curvature (1.54 m⁻¹) through the
+unblended feed (atan(1.54·1.0) ≈ 57°) exceeds the servo's physical range — the command
+saturates, and the saturated feedforward drives the robot at the clamp's maximum
+deflection through the corner's body. The exit's overshoot was the saturated turn's
+momentum: the robot turning at the maximum rate past the point where the corner's
+curvature ends, the feedback's correction (the crosstrack term's authority, itself
+bounded by the atan2) arriving after the fact. The v4.x overshoot precedent (the phase's
+own history) had predicted the class; the seed's error was its current form.
+
+FIX (took 3 days)
+The blend (w = 0.5): the feed's share halved, the command's total inside the range
+(28.5° at the sharpest corner, the margin absorbed by the estimate's errors), and the
+overshoot gone (the exit error ≤ 1°). The unblended counter-case preserved as the
+regression's reference.
+
+---
+
+E0027 | v6.3 | SMALL | Found Day 158 | Fixed in 2 days | the first timing test
+File : feedforward.py
+Error : the timing's miss — the anticipation that arrived before the corner
+Terminal : the first timing test
+
+WHAT HAPPENED
+Day 158, the first timing test (AC4's first run): the command's feed term ramped up ~150
+ms *before* the corner's geometry's tag — the robot beginning its turn into the corner
+before the corner, the inside margin's approach early, and the entry's geometry off by
+the early turn's amount.
+
+WHY IT HAPPENED
+The curvature's source's timing (the marker's position) and the geometry's truth (the
+curvature's physical start) differed by the marker's offset — an alignment error between
+the course rules' representation and the walls' reality.
+
+FIX (took 2 days)
+The timing's alignment: the curvature's step re-anchored at the curvature's physical
+start (the wall geometry's tag, from the turn logs' measured positions), and the
+rate-limiter's ramp's midpoint aligned to the corrected anchor. The re-test: the
+anticipation's ramp's midpoint within ±50 ms of the geometry's tag (AC4), the early
+turn's entry error gone.
+
+---
+
+E0028 | v6.3 | SMALL | Found Day 158 | Fixed in 2 days | afternoon
+File : feedforward.py
+Error : the heading term's double-counting — the corner's direction twice
+Terminal : afternoon
+
+WHAT HAPPENED
+Day 158 afternoon, the first full-corner test (the entry through the exit): the command
+showed a systematic offset — the robot turning ~2° more than the corner's demand through
+the corner's body, the exit approached slightly inside the ideal line. Not a crash, not
+an overshoot — a consistent over-turn, the law's terms disagreeing about the corner's
+direction.
+
+WHY IT HAPPENED
+The terms' semantics overlap: the heading error (against the tangent) and the
+feedforward (the curvature) both carry the corner's direction. The law's design intended
+the heading term for the *residual* pointing error and the feed for the *curvature's*
+demand — but the interim source (the course rules' tangent) loads the heading term with
+the curvature's full change, and the two terms double-count.
+
+FIX (took 2 days)
+The heading term's semantics restored: the heading error computed against the
+*pre-corner* course (the straight's direction) through the corner's entry, with the
+curvature's change carried by the feed term alone — the tangent's change removed from
+the heading term's source. The re-test: the over-turn's offset gone (the command's
+corner-body tracking within 0.5° of the demand).
+
+---
+
+E0029 | v6.3 | SMALL | Found Day 158 | Fixed in 2 days | evening
+File : feedforward.py
+Error : the blend's first ratio — the 75% detour that thin-margined the exit
+Terminal : evening
+
+WHAT HAPPENED
+Day 158 evening, the blend-ratio measurement (AC3's first pass): the 75% blend's corner
+test — the entry's heading error beautifully low (1.0°) and the exit's error back at
+1.8° — the anticipation's benefit at the entry paid for at the exit, the exit's margin
+thin.
+
+WHY IT HAPPENED
+The blend's ratio's upper bound is set by the chain's physical range, not by the entry's
+benefit: any ratio whose blended feed exceeds the clamp at the sharpest corner
+re-imports the saturation's exit cost. The 50% point is the largest ratio whose
+arithmetic stays inside the range at the measured geometry — the design's boundary,
+found by measurement.
+
+FIX (took 2 days)
+The 50% blend retained (the design's centre, the AC3 measurement's balance), and the
+ratio's upper bound (the clamp's arithmetic at the sharpest corner) documented as the
+ratio's design constraint — the traceability AC3 demands, written next to the ratio.
+
+---
+
+E0030 | v6.3 | SMALL | Found Day 159 | Fixed in 1 day | the calibration's honest review
+File : feedforward.py
+Error : the factor's first value — the 1.0 that the blend made safe
+Terminal : the calibration's honest review
+
+WHAT HAPPENED
+Day 159, the calibration's honest review: the factor 1.0 in the feed term — the code's
+curvature-to-angle mapping — was a first estimate, and the review asked the
+calibration's question: what *is* the 4WS kinematics' effective factor? The exit-tangent
+data (the corner tests' measured exit headings vs the commanded curvature) implied a
+factor of ~1.15 — the factor 1.0 was ~13% low, and the blend had absorbed the difference
+without any test noticing.
+
+WHY IT HAPPENED
+The factor was a first estimate, unmeasured until the review — the calibration's
+discipline (v6.0's provenance rule, applied to the feedforward's mapping) demanded the
+measurement, and the blend's margin had masked the error's presence.
+
+FIX (took 1 day)
+The factor's measurement recorded (1.15, from the exit-tangent data), the refinement
+scheduled, and the rule written: *every mapping constant in the chain is measured, and a
+constant whose error is masked by a safety margin is still an error — the margin is the
+design's safety, never the calibration's substitute* — the calibration review (every
+constant's measured status, asked in writing) joined the version's closing checklist.
+---
+
+---
+
+E0031 | v6.3 | SMALL | Found Day 157 | Fixed in 3 days | the design review
+File : feedforward.py
+Error : design rejected: Alternative A — Keep the feedback-only law (do nothing)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the status quo, with the debt already measured (the 47 mm margin, the ~4°
+entry heading error). The case for: proven, stable, tested. The case against: the lag is
+structural (the feedback cannot see the corner before it begins), and the margin's floor
+is the race's crash line. Effort: zero. Robustness: 3/5 (stable, marginal). Verdict:
+rejected as the sole answer; retained as the feedback's baseline.
+
+WHY IT HAPPENED
+The case against: the lag is structural (the feedback cannot see the corner before it
+begins), and the margin's floor is the race's crash line. Verdict: rejected as the sole
+answer; retained as the feedback's baseline.
+
+FIX (took 3 days)
+replaced by Alternative C — The 50% blend (chosen)
+
+---
+
+E0032 | v6.3 | SMALL | Found Day 157 | Fixed in 3 days | the design review
+File : feedforward.py
+Error : design rejected: Alternative E — Feedforward on the yaw rate (command the gyro's rate, not the angle)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the feedforward's output as a yaw-rate command (the corner's demand expressed
+as the rate the robot must turn), with the steering loop converting. The case for: the
+yaw rate is the IMU's direct measurement, and the corner's demand is naturally a rate.
+The case against, in this system: the conversion (rate → steering angle) is the same
+kinematics' mapping the angle feedforward needs, one layer of indirection later, and the
+angle feedforward's blend is directly comparable with the feedback's angle — the chain's
+units stay homogeneous. Effort: medium. Robustness: 3/5. Verdict: rejected — the angle
+domain is the chain's domain.
+
+WHY IT HAPPENED
+Verdict: rejected — the angle domain is the chain's domain.
+
+FIX (took 3 days)
+replaced by Alternative C — The 50% blend (chosen)
+
+---
+
+## v6.4 - ADAPTIVE GAIN SCHEDULING (Day 160-162)
+
+TOTAL ERROR : 8
+SMALL : 7
+BIG : 1
+
+E0033 | v6.4 | BIG | Found Day 160 | Fixed in 3 days | the zone schedule's first test
+File : gain_schedule.py
+Error : the zone schedule's boundary jerks — reproduced on the first build
+Terminal : the zone schedule's first test
+
+WHAT HAPPENED
+Day 160, the zone schedule's first test (the launch's ramp): the robot accelerated
+through the schedule's zones and twitched at each boundary's crossing — a visible jerk
+at ~35% and again at ~75% of the design speed, each twitch's magnitude different (the
+first ~2°, the second ~1°). The command's log showed the cause on sight: the gain's step
+at each boundary, the law's terms reweighting instantly.
+
+WHY IT HAPPENED
+The schedule's discontinuity: at a zone's boundary the gain steps, and a step in the
+law's parameter is a step in the law's output whose magnitude is the current error
+state's business — unpredictable until the boundary is crossed, and wrong in principle
+even when invisible in practice.
+
+INVESTIGATION (only for BIG errors)
+The step was the diagnosis. At the boundary (35% → 75% zone), the gain stepped from 1.2
+to 0.9 — and the law's *whole* response scaled instantly: the crosstrack term and the
+heading term's contributions, computed against the current errors, jumped by the step's
+ratio. The first twitch (~2°) occurred with a moderate crosstrack residual (the launch's
+settle, ~15 mm); the second (~1°) with a smaller residual — the magnitudes tracked the
+current error state, not any design constant. The rate limiter (v6.2's Error 5 lesson)
+*had* engaged — the command's step exceeded its slew and the limiter ramped it — but the
+ramp was the step's aftermath, the twitch already visible in the chassis's response. The
+zone schedule's gains were defensible; its *discontinuity* was not.
+
+FIX (took 3 days)
+The continuous schedule (the code's form): no zones, no thresholds — the gain's value at
+every speed the interpolation's point, the law's behaviour changing smoothly, the step
+class removed. The zone schedule preserved as the regression's reference.
+
+---
+
+E0034 | v6.4 | SMALL | Found Day 161 | Fixed in 2 days | the first integration of the continuous schedule
+File : gain_schedule.py
+Error : the percent convention's silent deadness — the raw m/s feed
+Terminal : the first integration of the continuous schedule
+
+WHAT HAPPENED
+Day 161, the first integration of the continuous schedule: the corner tests looked
+*unchanged* — the scheduled gain seemed to do nothing. The gain's log confirmed: at 1.8
+m/s, the scheduled k ≈ base_k/1.027 ≈ base_k — the schedule nearly flat, its range
+compressed into 2.7% of its design.
+
+WHY IT HAPPENED
+The percent convention is a boundary property, and the boundary's units were not audited
+— the same class of error v6.2's Error 3 had caught at the length boundary (mm vs m),
+now at the speed boundary (percent vs m/s).
+
+FIX (took 2 days)
+The conversion at the boundary — speed_pct = 100·v/1.8 — and the boundary test added to
+the regression (R5), the schedule's range verified by arithmetic before any run.
+
+---
+
+E0035 | v6.4 | SMALL | Found Day 161 | Fixed in 2 days | the corrected integration's corner tests
+File : gain_schedule.py
+Error : the slope's wrong range — the first 3:1 guess
+Terminal : the corrected integration's corner tests
+
+WHAT HAPPENED
+Day 161, the corrected integration's corner tests: at 1.8 m/s, the corner's exit
+tracking was *soft* — the crosstrack's recovery through the exit slower than the fixed
+gain's, the feedforward's blend's residual (v6.3) hanging longer than the v6.3 tests had
+shown. The full-speed gain was too weak.
+
+WHY IT HAPPENED
+The slope was guessed from a range assumption instead of measured from the probes — the
+schedule's shape's provenance was a number, not a measurement.
+
+FIX (took 2 days)
+The range measured at both ends (the creep's ceiling, the fast end's onset), the slope
+the range's interpolation, and the derivation written next to the constant.
+
+---
+
+E0036 | v6.4 | SMALL | Found Day 162 | Fixed in 1 day | the creep's runs
+File : gain_schedule.py
+Error : the velocity noise's wiggle — the gain's tremor at the creep
+Terminal : the creep's runs
+
+WHAT HAPPENED
+Day 162, the creep's runs: the scheduled gain's log showed a tremor — the gain wiggling
+±0.05 around its value, and the command's log showed the wiggle's reflection (~0.4° of
+command noise). The creep's convergence was the right rate; the command's noise was new.
+
+WHY IT HAPPENED
+The schedule's input quality is the schedule's quality: the gain inherited the
+velocity's noise because the gain's evaluation cadence was the loop's (100 Hz), faster
+than the information the velocity carries (20 Hz) — the gain updated on noise the
+estimator had already priced into its own output.
+
+FIX (took 1 day)
+The integration's contract: the gain evaluated at the velocity's 20 Hz cadence, held
+between updates, with the first-order smoothing (τ ≈ 50 ms) as the transients' absorber.
+The re-test: the gain's tremor gone, the command's noise back to the pre-schedule level.
+
+---
+
+E0037 | v6.4 | SMALL | Found Day 162 | Fixed in 1 day | the accelerating exit
+File : gain_schedule.py
+Error : the corner-exit's twitch — smooth in the speed domain, not in time
+Terminal : the accelerating exit
+
+WHAT HAPPENED
+Day 162, the accelerating exit (the corner's recovery, the speed loop's ramp): a
+residual twitch — smaller than the zone's jerks but present — a ~0.7° command movement
+through the exit, the chassis's response just visible in the log. The schedule was
+continuous; the twitch remained.
+
+WHY IT HAPPENED
+The schedule's input's *rate* is a design axis: a continuous function of speed is not
+automatically a smooth function of time when its input moves quickly — the gain's
+time-derivative is the slope × the speed's rate, and the transient's exit is where the
+two peak together.
+
+FIX (took 1 day)
+The smoothing's sizing (τ ≈ 50 ms — the velocity's transient's timescale) and the
+acceptance measured: the command's movement through the worst exit ≤ 0.5° per 100 ms
+(AC2), the twitch bounded and documented.
+
+---
+
+E0038 | v6.4 | SMALL | Found Day 160 | Fixed in 3 days | the design review
+File : gain_schedule.py
+Error : design rejected: Alternative A — Keep the fixed gain (do nothing)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the status quo, with the coverage's cost already measured (the 3.0 s halving
+at the creep, the thin margin at the fast end). The case for: proven, stable, one less
+thing to break. The case against: the sluggishness wastes the line-up's seconds and the
+fast end's margin is a crash's edge at the design maximum. Effort: zero. Robustness: 3/5
+(stable, compromising). Verdict: rejected as the sole answer; retained as the baseline
+and the scheduling's reference.
+
+WHY IT HAPPENED
+Verdict: rejected as the sole answer; retained as the baseline and the scheduling's
+reference.
+
+FIX (took 3 days)
+replaced by Alternative C — The continuous schedule (chosen)
+
+---
+
+E0039 | v6.4 | SMALL | Found Day 160 | Fixed in 3 days | the design review
+File : gain_schedule.py
+Error : design rejected: Alternative D — Schedule only the crosstrack weight, keep the heading term's unity
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the scheduled gain multiplies only the atan2 term (the convergence), the
+heading term's weight fixed. The case for: the pointing correction's stability is
+speed-independent, only the convergence needs the scheduling. The case against, in this
+system: the law's terms share the same error budget (the heading error is the pointing's
+response and the crosstrack's driver — v6.2's structure couples them), and the dynamics'
+scaling hits the law as a whole; splitting the terms' weights adds a second tuning axis
+the measurements do not yet justify. Effort: medium. Robustness: 3/5. Verdict: rejected
+— one scheduled gain on the law's established structure, the phase's conservatism.
+
+WHY IT HAPPENED
+Verdict: rejected — one scheduled gain on the law's established structure, the phase's
+conservatism.
+
+FIX (took 3 days)
+replaced by Alternative C — The continuous schedule (chosen)
+
+---
+
+E0040 | v6.4 | SMALL | Found Day 160 | Fixed in 3 days | the design review
+File : gain_schedule.py
+Error : design rejected: Alternative E — Schedule the ks floor instead of the gain
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: vary the velocity-damping term (v6.2's ks) with the speed. The case for: the
+ks already carries the speed's damping. The case against: the ks is the floor against
+the division's blow-up (the atan2's low-speed protection), not the convergence's
+authority — the sluggishness is the *k*'s fault, and the ks's variation would not cure
+it. Effort: low. Robustness: 2/5. Verdict: rejected — the wrong term for the measured
+fault.
+
+WHY IT HAPPENED
+Verdict: rejected — the wrong term for the measured fault.
+
+FIX (took 3 days)
+replaced by Alternative C — The continuous schedule (chosen)
+
+---
+
+## v6.5 - ANTI-WINDUP PID (Day 163-164)
+
+TOTAL ERROR : 8
+SMALL : 7
+BIG : 1
+
+E0041 | v6.5 | BIG | Found Day 163 | Fixed in 2 days | the baseline's reproduction
+File : anti_windup.py
+Error : the windup itself — the launch's release's lurch, the ring-down's four seconds
+Terminal : the baseline's reproduction
+
+WHAT HAPPENED
+Day 163, the baseline's reproduction (the fixed-integral form, the phase's status quo):
+the launch's hold — the robot against the wall, the speed loop's integral winding to the
++30 clamp through the hold's seconds — and the release: the robot lurched past the
+setpoint, the speed's correction oscillating around the target for ~4 s before the
+settle. The corner's sustained demand showed the same signature at the steering loop:
+the exit's overshoot past the tangent, the correction's oscillation while the integral
+unwound.
+
+WHY IT HAPPENED
+The integral accumulated under a saturated output — state the plant could not use,
+charged against the future: the accumulation is futile by construction when the command
+is already at the physical limit, and the futility's debt is paid at the reversal.
+
+INVESTIGATION (only for BIG errors)
+The integral's log was the diagnosis: through the hold, the integral's value climbed
+linearly to the clamp's edge and *stayed* — the accumulation of the error's history
+while the robot could not move. At the release, the error reversed, but the output
+stayed pinned at the clamp: the P and D terms' reversal had to overcome the integral's
+full contribution before the command could move — the release's delay, then the
+command's lunge (the output leaving the clamp with the debt still in the command), then
+the overshoot, then the ring-down while the integral unwound through the accumulating
+negative error. The v6.0 and v6.1 journals had named the class; the baseline's test
+measured it.
+
+FIX (took 2 days)
+The conditional integration (the shipped class): the integral freezes while the output
+is saturated, accumulates only while the output is free. The re-test: the hold's
+integral log flat, the release's lurch gone, the ring-down ≤ 1 s.
+
+---
+
+E0042 | v6.5 | SMALL | Found Day 163 | Fixed in 2 days | the first attempt
+File : anti_windup.py
+Error : the error-gated freeze — the first attempt's steady-state error
+Terminal : the first attempt
+
+WHAT HAPPENED
+Day 163, the first attempt (Alternative E): the freeze's gate on the error's magnitude —
+the integral froze when |err| exceeded a threshold. The launch's ramp's test: the
+robot's speed settled *short* of the setpoint — the line-up stopped ~15 mm before the
+mark (the speed loop's steady-state error, visible in the pose layer's log), and the
+corner's entry's test: the residual the integral should have cancelled, left standing.
+
+WHY IT HAPPENED
+The gate's information was wrong: the error's size is not the plant's inability. The
+output's saturation is the direct observation of the plant's limit; the error's
+magnitude is the transient's shape, and freezing on it breaks the integral's legitimate
+work.
+
+FIX (took 2 days)
+The gate on the output's saturation (the shipped test): the freeze's engagement at the
+command's clamp, the accumulation's freedom while the command is free. The re-test: the
+line-up's final error back within the tolerance, the launch's ramp's correction intact.
+
+---
+
+E0043 | v6.5 | SMALL | Found Day 164 | Fixed in 1 day | the near-boundary hold's test
+File : anti_windup.py
+Error : kd·(err−last)/dt
+Terminal : the near-boundary hold's test
+
+WHAT HAPPENED
+Day 164, the near-boundary hold's test (AC4's first run): the steering loop held near
+the clamp's edge (the corner's sustained demand with the command ~2° inside the ±35°
+edge), and the freeze decision's log showed the flap — the freeze engaging and releasing
+at ~10 Hz, the integral's growth intermittent instead of the expected flat line.
+
+WHY IT HAPPENED
+The boundary's noise: the D term's contribution to the pre-clamp output crosses the
+boundary's equality with the measurement's noise, and the exact test engages the freeze
+at every crossing — a real behaviour, with a conservative direction and a bounded
+consequence.
+
+FIX (took 1 day)
+The acceptance measured and documented: the flap's window (the ~10 Hz engagement), the
+direction (conservative), the bound (≤ 8% over the 2 s hold), and the window's test
+joined the regression — the honest acceptance of a bounded behaviour, with the
+back-calculation (Alternative D) recorded as the refinement if the bound proves
+insufficient at the planner's commands.
+
+---
+
+E0044 | v6.5 | SMALL | Found Day 164 | Fixed in 1 day | the first chain integration
+File : anti_windup.py
+Error : AntiWindupPID
+Terminal : the first chain integration
+
+WHAT HAPPENED
+Day 164, the first chain integration: one `AntiWindupPID` instance shared by both loops
+(the "one class, one object" shortcut). The launch's test: the speed loop's command
+*glitched* — a brief throttle pulse with no cause in the speed's error — and the
+steering loop's output showed the speed's history's signature (the integral's value
+carrying the speed's hold's accumulation into the steering's command).
+
+WHY IT HAPPENED
+The stateful unit's identity was violated: the class's state is the instance's memory,
+and two loops in one container is two histories in one memory — each loop's output
+reading the other's accumulation.
+
+FIX (took 1 day)
+The integration's contract: every loop owns its instance — the speed loop's
+`AntiWindupPID` with v6.0's gains, the steering loop's `AntiWindupPID` with v6.1's gains
+— the state's containers separated, the collision gone.
+
+---
+
+E0045 | v6.5 | SMALL | Found Day 163 | Fixed in 2 days | evening
+File : anti_windup.py
+Error : out = clamp(out); if out <= out_min or out >= out_max: pass
+Terminal : evening
+
+WHAT HAPPENED
+Day 163 evening, the conditional integration's first form: the hold's test showed the
+integral *still winding* through the saturated hold — the freeze's log flat (never
+engaged), the windup unchanged, the release's lurch intact. The anti-windup had done
+nothing, silently.
+
+WHY IT HAPPENED
+The test's input was the clamp's lie: the post-clamp output carries the saturation's
+evidence erased by the clamping itself — the would-be output's truth lives before the
+clamp, and the test must read it there.
+
+FIX (took 2 days)
+The ordering's fix — the test on the pre-clamp output, the clamp for the return (the
+shipped sequence): `out` computed, the freeze's test, the clamp's application. The
+re-test: the hold's integral log flat, the freeze engaged.
+
+---
+
+E0046 | v6.5 | SMALL | Found Day 163 | Fixed in 2 days | the design review
+File : anti_windup.py
+Error : design rejected: Alternative A — Keep the clamped integral (do nothing)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the status quo, with the windup's cost already in the logs (the launch's
+release's lurch, the corner's exit's overshoot, the ring-down's seconds). The case for:
+proven, tested, the clamps already bound the state. The case against: a clamp is a
+*bound*, not a *cure* — the state still winds to the bound's edge, and the release still
+pays the debt. Effort: zero. Robustness: 3/5 (stable, expensive at every release).
+Verdict: rejected as the sole answer; retained as the baseline and the regression's
+reference.
+
+WHY IT HAPPENED
+Verdict: rejected as the sole answer; retained as the baseline and the regression's
+reference.
+
+FIX (took 2 days)
+replaced by Alternative C — Conditional integration (chosen)
+
+---
+
+E0047 | v6.5 | SMALL | Found Day 163 | Fixed in 2 days | the design review
+File : anti_windup.py
+Error : design rejected: Alternative B — Clamp the integral's state (integral clamping)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: bound the integral itself (the state's clamp, e.g., ±(clamp/ki)) so the
+accumulated debt is limited. The case for: simple, the state's bound explicit. The case
+against, in this system: the bound is the windup's *limit*, not its *prevention* — the
+integral still fills to the bound during the hold, and the release still pays the
+bound's debt; the conditional integration's freeze prevents the accumulation where the
+clamping only caps it. Effort: low. Robustness: 3/5. Verdict: rejected — the cap is the
+survival, the freeze is the thriving.
+
+WHY IT HAPPENED
+Verdict: rejected — the cap is the survival, the freeze is the thriving.
+
+FIX (took 2 days)
+replaced by Alternative C — Conditional integration (chosen)
+
+---
+
+E0048 | v6.5 | SMALL | Found Day 163 | Fixed in 2 days | the design review
+File : anti_windup.py
+Error : design rejected: Alternative E — The error-gated freeze (the first attempt)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: freeze the integral when the error's magnitude exceeds a threshold — the
+"large error → don't integrate" heuristic. The case for: simple, the error's magnitude
+already computed. The case against, measured on Day 163: the gate froze the integral
+where it was needed (the transient's large errors with the output free) and missed the
+sustained hold's saturation — the steady-state error returned (Error 2 below). Effort:
+low. Robustness: 2/5. Verdict: rejected, preserved as the counter-case.
+
+WHY IT HAPPENED
+Verdict: rejected, preserved as the counter-case.
+
+FIX (took 2 days)
+replaced by Alternative C — Conditional integration (chosen)
+
+---
+
+## v6.6 - PATH PLANNER (Day 166-168)
+
+TOTAL ERROR : 7
+SMALL : 6
+BIG : 1
+
+E0049 | v6.6 | BIG | Found Day 166 | Fixed in 3 days | the first build
+File : layer7_path_planner.py
+Error : atan2(target_offset, 350.0)
+Terminal : the first build
+
+WHAT HAPPENED
+Day 166, the first build (Alternative B — the direct target, unprojected): the corner's
+test showed the robot driving a straight diagonal across the sharpest corner's geometry
+— the line from the entry straight's last metre to the corner's exit, cutting the inside
+of the curve — and the inside margin's log crossing the 50 mm floor: the margin's dip to
+~30 mm, the v6.2/v6.3 debt's floor violated. The robot's line was the chord of the
+corner's arc, not the arc.
+
+WHY IT HAPPENED
+The projection's absence: the unprojected target has no geometry's resolution — the
+target's angle is the exit's angle from the entry, and the corner's curve is skipped
+entirely. The lookahead's projection is what turns the target with the path's geometry;
+without it, the target is the chord.
+
+INVESTIGATION (only for BIG errors)
+The target's geometry was the diagnosis: the direct target points at the corner's *exit
+line* — at the entry, the robot's heading target is the corner's far side, and the robot
+drives the chord between the entry and the exit — the diagonal across the corner's
+inside. The law executed the target perfectly; the *target* was the diagonal. The seed's
+error was the planning's, not the execution's: the unprojected command cuts the corner
+because the direct line between the entry and the exit is the chord, and the chord is
+inside the arc.
+
+FIX (took 3 days)
+The projection at 350 mm (the shipped `atan2(target_offset, 350.0)`): the target's point
+350 mm ahead on the line, the angle rotating as the point crosses the corner's curve —
+the robot's line the arc's approach, not the chord. The re-test: the margin's log above
+the 50 mm floor through the sharpest corner, the diagonal gone.
+
+---
+
+E0050 | v6.6 | SMALL | Found Day 167 | Fixed in 2 days | the avoidance's first test
+File : layer7_path_planner.py
+Error : the offset's convention — the raw distance in the normalized slot
+Terminal : the avoidance's first test
+
+WHAT HAPPENED
+Day 167, the avoidance's first test: the injected offset (the mission's decision, a lane
+change's worth) produced a target swing ~5× the design's — the line's shift ±600 mm
+instead of ±120 mm, the robot's commanded line leaving the corridor's geometry entirely,
+the steering pinned at the clamp through the "avoidance".
+
+WHY IT HAPPENED
+The boundary's convention violated: the normalized offset's slot fed a raw distance, and
+the scale's multiplication amplified the mismatch silently — the convention is the
+encoding's contract, and the contract was unread.
+
+FIX (took 2 days)
+The convention enforced at the boundary: the mission's offset normalized to [-1.0, 1.0]
+before the planner's call, the raw distance excluded from the slot, and the reach test
+(AC3: the swing ±120 mm) verifying the scale by arithmetic.
+
+---
+
+E0051 | v6.6 | SMALL | Found Day 167 | Fixed in 2 days | the narrow track's first test
+File : layer7_path_planner.py
+Error : − err · gain
+Terminal : the narrow track's first test
+
+WHAT HAPPENED
+Day 167, the narrow track's first test: with the gain 1.0 (the normal mode's value,
+initially reused), the robot's excursions through the 600 mm corridor were ~±70 mm — the
+centering soft, the corridor's line wandered, the margin's budget (the corridor's
+half-width minus the robot's width) eaten by the wander.
+
+WHY IT HAPPENED
+The mode's gain was borrowed (the normal mode's 1.0), not derived: each mode's centering
+weight is the mode's geometry's measurement — the narrow track's tighter budget demands
+the stronger landing, and the borrowed gain is the wrong mode's answer.
+
+FIX (took 2 days)
+The mode's gain derived from the corridor's measurements: the sweep (1.0 → 1.8 → 2.2) —
+the 1.8's excursions' bound chosen as the budget's comfort, the 2.2's marginal gain (the
+further reduction < 10% at the stability's question) rejected — the shipped `1.8 if
+narrow_mode else 1.0`.
+
+---
+
+E0052 | v6.6 | SMALL | Found Day 168 | Fixed in 1 day | the first chain integration
+File : layer7_path_planner.py
+Error : − err · gain
+Terminal : the first chain integration
+
+WHAT HAPPENED
+Day 168, the first chain integration: the planner's target crosstrack offset had been
+fed into the law's crosstrack *error* slot (the "reuse the target as the error"
+shortcut). The corner's recovery's test: the robot *oscillated* through the recovery —
+the line overshooting and re-approaching, the oscillation's period ~1.5 s, the v6.2
+convergence's smooth decay replaced by the ringing.
+
+WHY IT HAPPENED
+The semantics' boundary violated: the target is the *setpoint* (the line to seek), the
+law's error is the *deviation* (the measure against the setpoint) — and the target's own
+internal shaping is the plan's soft landing, not the law's error. Feeding the target
+into the error's slot counts the error twice, and the doubled gain rings.
+
+FIX (took 1 day)
+The semantics' separation restored: the law's crosstrack term reads the measured
+deviation against the target (the setpoint), and the target's internal shaping stays the
+plan's soft landing — the slot's contract written at the integration. The re-test: the
+recovery's smooth decay back, the oscillation gone.
+
+---
+
+E0053 | v6.6 | SMALL | Found Day 168 | Fixed in 1 day | the full-speed corner's test
+File : layer7_path_planner.py
+Error : the fast entry's coordination — the pointing and the anticipation's overlap
+Terminal : the full-speed corner's test
+
+WHAT HAPPENED
+Day 168, the full-speed corner's test (1.8 m/s, the sharpest corner): the entry rushed —
+the steering's rate through the approach exceeded the chain's shaping, the rate limiter
+saturating through the entry's first ~200 ms, and the feedforward's blend (v6.3) and the
+planner's target both demanding the corner's turn — the sum's excess visible in the
+command's log.
+
+WHY IT HAPPENED
+The roles' overlap at the entry, amplified by the lookahead's flatness: the one true
+knob is one value (350 mm) for all speeds, and at the fast speeds the projection's
+rotation and the feedforward's anticipation arrive together — the coordination (the
+sum's rate, bounded by the chain's shaping) exceeded at the design maximum.
+
+FIX (took 1 day)
+The coordination's audit and the acceptance: the two roles' separation written (the
+planner's target = the pointing; the feedforward = the curvature's anticipation), the
+entry's sum's rate re-verified against the chain's shaping at 1.8 m/s (the limiter's
+saturation's window measured: ≤ 100 ms, the entry's rush bounded and documented), and
+the lookahead's *speed-scheduling* recorded as the named deferral (v6.8's profiling will
+re-derive the one true knob per speed regime).
+
+---
+
+E0054 | v6.6 | SMALL | Found Day 166 | Fixed in 3 days | the design review
+File : layer7_path_planner.py
+Error : design rejected: Alternative A — Keep the fixed centre target (do nothing)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the status quo, with the reference's gap named. The case for: proven, tested,
+the centre's convergence solid. The case against: the mission's behaviours cannot
+express themselves — the avoidance has no line to shift to, the narrow track has no
+stronger centering, and the heading term's interim source (the course rules' tangent)
+stays. Effort: zero. Robustness: 3/5 (stable, blind to the mission). Verdict: rejected
+as the sole answer; retained as the baseline.
+
+WHY IT HAPPENED
+The case against: the mission's behaviours cannot express themselves — the avoidance has
+no line to shift to, the narrow track has no stronger centering, and the heading term's
+interim source (the course rules' tangent) stays. Verdict: rejected as the sole answer;
+retained as the baseline.
+
+FIX (took 3 days)
+replaced by Alternative C — The projected target at 350 mm (chosen)
+
+---
+
+E0055 | v6.6 | SMALL | Found Day 166 | Fixed in 3 days | the design review
+File : layer7_path_planner.py
+Error : design rejected: Alternative E — The target as the pure mission feed (no error's shaping)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the target only the avoidance's offset — the line's shift, no internal
+correction. The case for: the target's structure minimal, the law's error the only
+correction. The case against, in this system: the unshaped target is the plan's windup —
+at the large errors, the fixed target commands the maximum turn immediately, the command
+pinned while the robot approaches (v6.5's lesson at the plan's level); the shaping's
+soft landing is the boundedness, and the law downstream executes the shaped residual.
+Effort: low. Robustness: 2/5. Verdict: rejected — the soft landing is the plan's
+anti-windup.
+
+WHY IT HAPPENED
+Verdict: rejected — the soft landing is the plan's anti-windup.
+
+FIX (took 3 days)
+replaced by Alternative C — The projected target at 350 mm (chosen)
+
+---
+
+## v6.7 - CUBIC SPLINE TRAJECTORY (Day 169-170)
+
+TOTAL ERROR : 7
+SMALL : 6
+BIG : 1
+
+E0056 | v6.7 | BIG | Found Day 169 | Fixed in 2 days | the first build
+File : cubic_spline.py
+Error : the Runge overshoot — the free ends' swing
+Terminal : the first build
+
+WHAT HAPPENED
+Day 169, the first build (Alternative B — the natural spline, the free boundary
+conditions, the default): the smoothed path's ends swung — the path's start curving away
+from the launch's straight's direction and the path's end curving away from the
+line-up's, the deviations ~4° at the start and ~3° at the end, visible in the plan's
+plot and confirmed on the first test (the robot's launch veering as the path's start's
+curvature commanded). The path's middle was fine; the ends were wrong.
+
+WHY IT HAPPENED
+The ends' physics unstated: the free boundary conditions leave the end tangents
+unconstrained, and the interpolant's swing at the boundaries is the unconstrained
+shape's freedom — the path's ends deviating from the travel's directions.
+
+INVESTIGATION (only for BIG errors)
+The boundary conditions were the diagnosis: the natural spline's ends set the second
+derivative to zero — the polynomials at the ends unconstrained — and the interpolant
+swung at the boundaries (the Runge phenomenon, the classic overshoot of the polynomial's
+interpolation at the domain's edges). The path's ends curved away from the travel
+because the ends' shapes were *free*: the default's conditions said nothing about the
+travel's direction, and the polynomials used the freedom to swing. The seed's lesson had
+named the class: the defaults are rarely right, and the boundary conditions are a
+choice.
+
+FIX (took 2 days)
+The clamped boundary conditions: the end tangents fixed to the travel's directions (the
+first segment's direction at the start, the last segment's at the end) — the ends
+pinned, the path's start and end straight. The re-test: the ends' tangents within ~1° of
+the travel (AC1), the launch's path straight.
+
+---
+
+E0057 | v6.7 | SMALL | Found Day 170 | Fixed in 1 day | the first profile's test
+File : cubic_spline.py
+Error : the noise's curvature — the waypoints' jitter on the straights
+Terminal : the first profile's test
+
+WHAT HAPPENED
+Day 170, the first profile's test: the straights' profile showed the spikes — the k's
+values jumping to ~0.08-0.12 on the sections that were geometrically straight, the
+magnitude ~a third of the gentlest corner's peak. The speed scaling's dry run: the
+spikes' sections commanded the speed's dips — the thrash, re-imported through the
+estimator's back door.
+
+WHY IT HAPPENED
+The estimate's noise is the input's noise: the waypoints' jitter at the nearly-straight
+sections, unfloored, becomes the spurious curvature — the profile's quality is the
+waypoints' quality, and the noise's floor is the profile's first conditioning.
+
+FIX (took 1 day)
+The profile's conditioning: the k's floor (the values below the noise's band treated as
+the straight's zero) and the profile's light smoothing along the path (the spikes'
+suppression), the floor's value derived from the noise's measurement (the straights'
+band ~±0.05, the floor set above it). The re-test: the straights' profile near zero
+(AC2), the corners' peaks unaffected (the floor below the corners' band).
+
+---
+
+E0058 | v6.7 | SMALL | Found Day 170 | Fixed in 1 day | the first profile's run on the full path's data
+File : cubic_spline.py
+Error : nan
+Terminal : the first profile's run on the full path's data
+
+WHAT HAPPENED
+Day 170, the first profile's run on the full path's data: the computation *blew up* —
+the curvature's list containing a `nan` at a middle waypoint, the downstream consumers
+(the feedforward's fetch) producing the command's NaN, the chain's guard (v6.0's dt
+guard's class) catching the output. The diagnosis was immediate: a duplicate waypoint —
+two identical positions in the path's data (the logs' standstill's repeated point) —
+giving the zero-length segment, the division by the zero norm.
+
+WHY IT HAPPENED
+The zero-segment's absence of a guard: the data's duplicates were the data's reality
+(the standstills, the re-sampled points), and the formula's division assumed the
+segments' positivity — an assumption the data did not keep.
+
+FIX (took 1 day)
+The preprocessing's guard (R6): the duplicates removed and the spacing's minimum
+enforced before the spline's fit and the curvature's computation — the division's
+denominator guarded at the data's boundary, the contract documented with the function.
+
+---
+
+E0059 | v6.7 | SMALL | Found Day 170 | Fixed in 1 day | the feedforward's first test with the new source
+File : cubic_spline.py
+Error : the signed cross — the direction in the magnitude's estimate
+Terminal : the feedforward's first test with the new source
+
+WHAT HAPPENED
+Day 170, the feedforward's first test with the new source: the left-hand corners
+commanded the feed's *wrong sign* — the anticipation steering the wrong way through the
+corner's approach, the blend fighting the feedback, the corner's entry's error reversed
+(~2.5° the wrong way). The right-hand corners were fine.
+
+WHY IT HAPPENED
+The boundary's convention violated: the magnitude's estimate (the absolute cross) fed
+raw with the frame's sign — the direction's sense belongs to the path's orientation, not
+the coordinate frame's cross, and the mixed convention flipped the left-hand corners'
+anticipation.
+
+FIX (took 1 day)
+The shipped formula's absolute cross restored at the boundary (the magnitude only), and
+the direction's source — the path's orientation's sense — mapped into the feedforward's
+sign contract (v6.2's discipline) at the integration. The re-test: the left-hand
+corners' anticipation correct, the blend's sign's audit green.
+
+---
+
+E0060 | v6.7 | SMALL | Found Day 170 | Fixed in 1 day | evening
+File : cubic_spline.py
+Error : the sine as the curvature — the units' calibration unread
+Terminal : evening
+
+WHAT HAPPENED
+Day 170 evening, the speed scaling's first dry run (the profile feeding the corner-speed
+calculation): the corner speeds came out wrong — the sharpest corner's limit ~2× the
+expected band (the corner entered ~30% too fast in the dry run's simulation) — the
+scaling treating the dimensionless k as the per-length curvature.
+
+WHY IT HAPPENED
+The proxy's units silently assumed: the dimensionless sine fed as the per-length
+curvature, the conversion unread — the calibration's contract unread at the boundary.
+
+FIX (took 1 day)
+The calibration applied at the profile's boundary: the per-length conversion (θ/|a|)
+documented and applied, the corner speeds re-computed within the expected band (AC4),
+and the calibration's test joined the regression.
+
+---
+
+E0061 | v6.7 | SMALL | Found Day 169 | Fixed in 2 days | the design review
+File : cubic_spline.py
+Error : design rejected: Alternative A — Keep the course rules' radii (do nothing)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the status quo, with the cliffs named (the single-radius corners, the ±8%
+uncertainty, the speed's thrash). The case for: proven, measured, simple. The case
+against: the cliffs are the thrash's cause, and the consumers (the feedforward, the
+planner, the speed scaling) all feed on the cliffs. Effort: zero. Robustness: 3/5
+(stable, cliffed). Verdict: rejected as the sole answer; retained as the baseline and
+the counter-case.
+
+WHY IT HAPPENED
+Verdict: rejected as the sole answer; retained as the baseline and the counter-case.
+
+FIX (took 2 days)
+replaced by Alternative C — The clamped spline with the discrete curvature (chosen)
+
+---
+
+E0062 | v6.7 | SMALL | Found Day 169 | Fixed in 2 days | the design review
+File : cubic_spline.py
+Error : design rejected: Alternative D — The raw waypoints' polyline (no smoothing)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the curvature from the measured waypoints directly, no spline. The case for:
+the measurements, unfiltered. The case against, in this system: the waypoints' noise
+enters the curvature at full weight (the spurious curvature at the straights — the
+thrash re-imported), and the path's jaggedness is the speed's jaggedness. Effort: low.
+Robustness: 2/5. Verdict: rejected — the smoothing is the point.
+
+WHY IT HAPPENED
+Verdict: rejected — the smoothing is the point.
+
+FIX (took 2 days)
+replaced by Alternative C — The clamped spline with the discrete curvature (chosen)
+
+---
+
+## v6.8 - VELOCITY PROFILING (Day 172-174)
+
+TOTAL ERROR : 9
+SMALL : 8
+BIG : 1
+
+E0063 | v6.8 | BIG | Found Day 172 | Fixed in 3 days | the baseline's reproduction
+File : layer8_trajectory_opt.py
+Error : sqrt(a_centripetal_max/curvature)
+Terminal : the baseline's reproduction
+
+WHAT HAPPENED
+Day 172, the baseline's reproduction (the unprofiled runs, the straight's speeds into
+the corners): through the sharpest measured corner, the wheel slip's signature — the
+yaw's response lagging the steering's command, the nose pushing wide, the corner's
+outside margin consumed (the line's wide deviation ~25 cm past the corner's exit, the
+pose layer's log). The robot understeered wide because the corner's lateral demand
+exceeded the tyres' grip.
+
+WHY IT HAPPENED
+The grip's budget unguarded: the corner's speed was the straight's speed, the lateral
+demand the square of the speed, and the demand exceeded the probed budget — the slip was
+the physics' arithmetic unenforced.
+
+INVESTIGATION (only for BIG errors)
+The lateral demand was the diagnosis: at the straight's speed into the sharpest corner,
+the centripetal demand — a_c = v²·κ — was computed against the probed grip's budget (the
+1.2 m/s², measured that morning): the demand ~2× the budget at the entry's speeds, the
+tyres' lateral force saturated, the slip beginning, the yaw's response falling behind
+the command — the understeer. The steering was responding correctly; the *speed* was
+demanding what the grip could not give. The seed's error was the speed's, not the
+steering's: the corner's speed unprofiled, the grip's budget unenforced.
+
+FIX (took 3 days)
+The physics' ceiling (the shipped `sqrt(a_centripetal_max/curvature)`): the corner's
+speed derived from the grip's budget, the demand kept within the tyres' capacity. The
+re-test: the slip's signature absent through the sharpest corner at the profiled speeds
+(AC1).
+
+---
+
+E0064 | v6.8 | SMALL | Found Day 172 | Fixed in 3 days | the stepwise first attempt
+File : layer8_trajectory_opt.py
+Error : the acceleration's disguise — the stepwise profile's slams
+Terminal : the stepwise first attempt
+
+WHAT HAPPENED
+Day 172, the stepwise first attempt (Alternative B): the corner's speeds were right (the
+35's), but the *transitions* were wrong — the deceleration's slam at the corner's entry
+(the command stepping from 60 to 35 in one tick), the robot's pitch visible in the log
+(the weight's transfer), and — the version's irony — the slip's signature *returning* at
+the sharpest corner despite the lower speed: the grip's transient lost at the demand's
+peak.
+
+WHY IT HAPPENED
+The speed's changes unbounded: the profile commanded the values without commanding the
+transitions — the steps were the accelerations, and the accelerations were the grip's
+transients, unshaped.
+
+FIX (took 3 days)
+The ramp (the shipped per-frame step's limit — the 2.5 per 10 ms frame, the braking's
+1.5×): the speed's changes bounded, the transitions shaped, the grip's transient
+protected. The re-test: the command's rate within the limits through the transitions
+(AC2), the slip's signature gone.
+
+---
+
+E0065 | v6.8 | SMALL | Found Day 173 | Fixed in 2 days | the first integration with the front-distance scaling
+File : layer8_trajectory_opt.py
+Error : the scaling's order — the front-scaling before the selection
+Terminal : the first integration with the front-distance scaling
+
+WHAT HAPPENED
+Day 173, the first integration with the front-distance scaling: the obstacle's
+approach's speeds were wrong — the composed target dipping below the physics' ceiling at
+the corner's approach (the speed's profile distorted by the scaling's factor applied in
+the wrong sequence), the corner's entry over-cautious in one scenario and the
+double-limit's composition unclear in the logs.
+
+WHY IT HAPPENED
+The composition's order reversed: the scaling's application before the selection's, the
+limits' precedence violated — the double-limit's arithmetic's sequence unrecorded.
+
+FIX (took 2 days)
+The shipped order: the selection (the ceiling, the floor, the cap), then the scaling
+(the < 450 mm proportion on the selected value), then the clamps — the limits'
+precedence documented (R5), the composed speeds monotone in the distance (AC4).
+
+---
+
+E0066 | v6.8 | SMALL | Found Day 173 | Fixed in 2 days | the profiling's first build with the plan's curvature
+File : layer8_trajectory_opt.py
+Error : |2·sin(heading_err)|/0.35
+Terminal : the profiling's first build with the plan's curvature
+
+WHAT HAPPENED
+Day 173, the profiling's first build with the plan's curvature (the profile's
+precomputed value fetched along the path — Alternative D): through the corner's
+approach, the speed's ceiling *lagged* the actual geometry — the commanded deceleration
+arriving a beat after the robot's heading error had already begun the turn, the entry's
+speed still dropping as the corner's demand peaked — the profile's anticipation and the
+execution's truth out of phase.
+
+WHY IT HAPPENED
+The domains' separation violated: the plan's curvature (the anticipation) and the
+execution's curvature (the truth) are different quantities in different timing domains,
+and the substitution phased the profiling with the plan's clock instead of the robot's.
+
+FIX (took 2 days)
+The runtime's estimate (the shipped form): the profiling's curvature from the current
+heading error, the ceiling following the execution's truth — the profile's role
+documented as the planning's complement (its continuity the plan's shape, not the
+execution's input). The re-test: the deceleration's arrival aligned with the turn's
+start.
+
+---
+
+E0067 | v6.8 | SMALL | Found Day 174 | Fixed in 1 day | the emergency's first test
+File : layer8_trajectory_opt.py
+Error : 0.0
+Terminal : the emergency's first test
+
+WHAT HAPPENED
+Day 174, the emergency's first test: the flag's assertion during the straight's run —
+the speed's command *ramped* to zero (the braking's 1.5× limb — the deceleration's 3.75
+per frame, the stop's ~16 frames from the 60) — the stop's latency measured ~160 ms, the
+obstacle's distance at the straight's speed eaten by the ramp's frames: ~30 cm of travel
+before the stop completed. The emergency's stop was late.
+
+WHY IT HAPPENED
+The emergency's branch bypassed: the stop routed through the ramp's limb, the comfort's
+bounds applied to the safety's moment — the latency is the crash's distance, and the
+immediacy is the emergency's physics.
+
+FIX (took 1 day)
+The shipped branch (the immediate zero): the flag's assertion returns the 0.0 in the
+same tick, the ramp bypassed, the state zeroed for the restart (the ramp's re-entry, the
+acceleration's shape, recorded as the deferral). The re-test: the stop's same-tick
+completion (AC5), the latency gone.
+
+---
+
+E0068 | v6.8 | SMALL | Found Day 172 | Fixed in 3 days | the design review
+File : layer8_trajectory_opt.py
+Error : design rejected: Alternative A — Keep the straight's speeds (do nothing)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the status quo, with the understeer named (the corner's runs at the straight's
+speed, the nose pushing wide). The case for: proven, simple. The case against: the slip
+is the grip's overrun, and the wide lines are the corner's margins consumed — the
+understeer's crash risk at the venue's sharpest geometry. Effort: zero. Robustness: 2/5
+(the grip's unguarded). Verdict: rejected as the sole answer; retained as the baseline
+and the counter-case.
+
+WHY IT HAPPENED
+Verdict: rejected as the sole answer; retained as the baseline and the counter-case.
+
+FIX (took 3 days)
+replaced by Alternative C — The physics' ceiling with the jerk's ramp (chosen)
+
+---
+
+E0069 | v6.8 | SMALL | Found Day 172 | Fixed in 3 days | the design review
+File : layer8_trajectory_opt.py
+Error : design rejected: Alternative B — The stepwise speed's profile (the first attempt, the acceleration's disguise)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: command the speed's steps — the straight's 60, the corner's 35, the steps at
+the corners' boundaries. The case for: simple, the profile's values clear. The case
+against, measured on Day 172: the steps are the accelerations — the deceleration's slam
+at the corner's entry, the robot's pitch and the grip's transient loss at the demand's
+peak (the slip's window re-opened at the sharpest corners despite the lower corner's
+speed). Effort: low. Robustness: 2/5. Verdict: rejected, preserved as the counter-case.
+
+WHY IT HAPPENED
+Verdict: rejected, preserved as the counter-case.
+
+FIX (took 3 days)
+replaced by Alternative C — The physics' ceiling with the jerk's ramp (chosen)
+
+---
+
+E0070 | v6.8 | SMALL | Found Day 172 | Fixed in 3 days | the design review
+File : layer8_trajectory_opt.py
+Error : design rejected: Alternative D — The profile-based curvature (the plan's value as the profiling's input)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the profiling's curvature from the path's profile (v6.7's precomputed), the
+corner's ceiling from the plan's anticipation. The case for: the plan's continuity, the
+ceiling known ahead. The case against, measured on Day 173: the plan's value and the
+execution's state diverge at the entry — the profile's anticipation vs the current
+heading error's reality (the timing's mismatch, Error 4's symptom) — and the runtime's
+estimate (the code's live form) tracks the execution's truth. Effort: low. Robustness:
+3/5. Verdict: rejected, the runtime's estimate chosen, the profile's role documented as
+the planning's complement.
+
+WHY IT HAPPENED
+Verdict: rejected, the runtime's estimate chosen, the profile's role documented as the
+planning's complement.
+
+FIX (took 3 days)
+replaced by Alternative C — The physics' ceiling with the jerk's ramp (chosen)
+
+---
+
+E0071 | v6.8 | SMALL | Found Day 172 | Fixed in 3 days | the design review
+File : layer8_trajectory_opt.py
+Error : design rejected: Alternative E — The fixed corner's speed (the v_corner alone, no physics' ceiling)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the corner's speed a constant (the 35), no curvature's arithmetic. The case
+for: simple, the corner's speed known. The case against, in this system: the fixed value
+ignores the curvature's range — the gentlest corner under-speeded, the sharpest
+over-speeded (the slip at the sharp end, the time wasted at the gentle) — and the
+physics' ceiling (the sqrt's arithmetic) is the measured budget's enforcement. Effort:
+low. Robustness: 2/5. Verdict: rejected — the ceiling is the budget's arithmetic.
+
+WHY IT HAPPENED
+Verdict: rejected — the ceiling is the budget's arithmetic.
+
+FIX (took 3 days)
+replaced by Alternative C — The physics' ceiling with the jerk's ramp (chosen)
+
+---
+
+## v6.9 - OBSTACLE AVOIDANCE (Day 175-177)
+
+TOTAL ERROR : 8
+SMALL : 7
+BIG : 1
+
+E0072 | v6.9 | BIG | Found Day 175 | Fixed in 3 days | the on-demand replanning's build
+File : obstacle_avoid.py
+Error : the replanning's staleness — the 200 ms of the past
+Terminal : the on-demand replanning's build
+
+WHAT HAPPENED
+Day 175, the on-demand replanning's build (Alternative B): the avoidance's decisions
+arrived stale — through the obstacle's approach, the plan's line and the speed's target
+reflected the detection's state from ~200 ms earlier (the replanning's computation and
+switching measured at the log's timestamps), the robot's line lagging the pillar's
+actual geometry, the speed's decisions riding the obstacle's past.
+
+WHY IT HAPPENED
+The on-demand computation's latency: the replanning's trigger-to-decision cost (~200 ms)
+is the staleness — the decision's age at the moment of its use, and the age is the
+distance at speed.
+
+INVESTIGATION (only for BIG errors)
+The replanning's structure was the diagnosis: the on-demand computation — the plan
+recomputed when the detection changed — carries the computation's and the switching's
+cost, measured at ~200 ms, and the staleness is the distance at speed: ~24-36 cm of
+travel at the phase's straight's speeds, the obstacle's approach's geometry's worth. The
+robot acted on the obstacle's past exactly where the collision's geometry lives — the
+approach's final metres, the decision's correctness's moment. The seed's error was the
+*structure's*: the decision computed on demand is the decision delayed by its own
+computation.
+
+FIX (took 3 days)
+The precomputed variants (the shipped structure): the three lines (the left, the centre,
+the right — the offsets -1.0, 0.0, +1.0) continuously computed, always ready, the
+selection a read at the tick's rate — the decision's latency collapsed to the tick's,
+the staleness's class removed.
+
+---
+
+E0073 | v6.9 | SMALL | Found Day 176 | Fixed in 2 days | the first integration
+File : obstacle_avoid.py
+Error : the direct feed's slam — the avoidance's output bypassing the ramp
+Terminal : the first integration
+
+WHAT HAPPENED
+Day 176, the first integration: the Avoidance's output fed *directly* into the speed
+loop (the "the obstacle's layer owns the speed" shortcut, bypassing the trajectory
+layer's ramp). The brake's test: the stop's target's step (the 60 → 0 at the brake's
+line) delivered as the slam — the deceleration's spike, the robot's pitch, the grip's
+transient lost at exactly the stop's moment — and the band's transitions (the 450's
+crossing) stepping with the same violence. The profiling's shape (v6.8's ramp) had been
+bypassed.
+
+WHY IT HAPPENED
+The chain's boundary bypassed: the avoidance's output's route skipped the ramp, and the
+decisions' steps — the stop's zero, the band's scaling's transitions — were delivered
+unshaped, the accelerations' slams the robot's transient's cost.
+
+FIX (took 2 days)
+The chain's order restored: the Avoidance's output feeds the trajectory layer's ramp —
+the decisions' steps shaped at the chain's boundary, the stop's same-tick decision
+preserved (the ramp's braking's limb completing the stop within the budget), the band's
+transitions shaped. The re-test: the stop's deceleration smooth, the grip's transient
+protected.
+
+---
+
+E0074 | v6.9 | SMALL | Found Day 176 | Fixed in 2 days | the first runs with the raw distance
+File : obstacle_avoid.py
+Error : the thresholds' flap — the noise's crossings of the lines
+Terminal : the first runs with the raw distance
+
+WHAT HAPPENED
+Day 176, the first runs with the raw distance: the target's commands *flapped* at the
+thresholds — the front distance's noise crossing the 450 (the full speed ↔ the scaled,
+the flap's period ~2-3 Hz) and the 180's edge (the scaling ↔ the zero's boundary) — the
+churn visible in the speed's log, the ramp's smoothing (the v6.8 limb) absorbing the
+command's *rate* but the target's *level* still flapping.
+
+WHY IT HAPPENED
+The thresholds' noise unconditioned: the raw distance's crossings flapped the decisions'
+state — the layer's input needed the smoothing at the boundary, the flap's amplitude the
+noise's amplitude.
+
+FIX (took 2 days)
+The conditioning at the layer's boundary: the distance's smoothing (the first-order, τ ~
+50 ms — the v6.4 cadence contract's class) feeding the band's scaling, with the brake's
+line's authority preserved — the safety reads the *raw* distance (the same-tick zero
+never delayed), the band reads the smoothed. The re-test: the flap's amplitude bounded
+(AC4), the churn gone.
+
+---
+
+E0075 | v6.9 | SMALL | Found Day 177 | Fixed in 1 day | the pillars' first runs
+File : obstacle_avoid.py
+Error : the side's flapping — the pillar's lateral reading's noise in the selection
+Terminal : the pillars' first runs
+
+WHAT HAPPENED
+Day 177, the pillars' first runs: the robot *weaved* through the approach — the selected
+variant flipping between the left and the centre lines as the pillar's lateral
+estimate's noise crossed the selection's boundary (the flip's period ~1 s, the line's
+shift's direction changing mid-approach), the steering's churn and the approach's
+geometry's uncertainty.
+
+WHY IT HAPPENED
+The selection's commitment absent: the variant's choice re-read with every frame's noise
+— a commitment is a state, and the state's hysteresis (the held line, the change only
+when the geometry's evidence clears the boundary) is the decision's stability.
+
+FIX (took 1 day)
+The selection's commitment: the chosen variant held until the pillar's geometry's
+evidence crosses the boundary with the margin (the hysteresis's band, measured from the
+noise's amplitude), the centre variant the default while the pillar's side is ambiguous
+— the decision's state, not the instantaneous read. The re-test: the weave gone, the
+line's commitment stable through the approach (AC3's freshness preserved — the
+commitment's update still tick-rate).
+
+---
+
+E0076 | v6.9 | SMALL | Found Day 177 | Fixed in 1 day | the mixed course's run
+File : obstacle_avoid.py
+Error : the classes' conflation — the offsets on the mandated stops
+Terminal : the mixed course's run
+
+WHAT HAPPENED
+Day 177, the mixed course's run (the obstacles and the pillars together): the robot
+*avoided* the mandated stop — the offsets applying to the stopping's class, the line
+shifting around the obstacle the rules required stopping for — the rules' violation (the
+avoidance's pass where the mandate's stop was due), and the near-miss's geometry (the
+shifted line's margin against the obstacle's zone).
+
+WHY IT HAPPENED
+The classes' conflation: the offsets' selection ignored the obstacle's class — the
+mandate's stops and the pillars' rewards are different behaviours, and the boundary's
+contract (the type's read) is what separates them.
+
+FIX (took 1 day)
+The classification's contract (R5): the obstacle's class from the mission status — the
+stopping's class: the brake's line universal, no offsets; the pillars' class: the
+offsets to the planner — the separation enforced at the selection. The re-test: the
+mandated stop obeyed, the pillars' pass collected, each class's behaviour verified.
+
+---
+
+E0077 | v6.9 | SMALL | Found Day 175 | Fixed in 3 days | the design review
+File : obstacle_avoid.py
+Error : design rejected: Alternative A — Keep the blind proportion (do nothing)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the status quo — v6.8's front-scaling, the distance's fraction, no brake's
+line, no offsets. The case for: proven, integrated. The case against: the stop's mandate
+unenforced (the scaling's zero never reached — the proportional reaches 0 only at
+front=0 — the obstacle's contact), and the pillars' reward uncollected. Effort: zero.
+Robustness: 2/5 (the mandate's gap). Verdict: rejected as the sole answer; retained as
+the baseline.
+
+WHY IT HAPPENED
+Verdict: rejected as the sole answer; retained as the baseline.
+
+FIX (took 3 days)
+replaced by Alternative C — The precomputed variants with the continuous selection
+(chosen)
+
+---
+
+E0078 | v6.9 | SMALL | Found Day 175 | Fixed in 3 days | the design review
+File : obstacle_avoid.py
+Error : design rejected: Alternative D — The single adaptive plan (the offset computed continuously, one plan)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: one plan, the offset varying continuously with the pillar's geometry. The case
+for: the plan's continuity. The case against, in this system: the continuously-varying
+offset blends the variants' lines into the muddle (the centre's ambiguity, the side's
+decision's noise entering the line's geometry) — the discrete variants (the three lines)
+with the committed selection (Error 4's hysteresis) keep the decision's states clean.
+Effort: medium. Robustness: 3/5. Verdict: rejected — the variants are the decision's
+states.
+
+WHY IT HAPPENED
+Verdict: rejected — the variants are the decision's states.
+
+FIX (took 3 days)
+replaced by Alternative C — The precomputed variants with the continuous selection
+(chosen)
+
+---
+
+E0079 | v6.9 | SMALL | Found Day 175 | Fixed in 3 days | the design review
+File : obstacle_avoid.py
+Error : design rejected: Alternative E — The avoidance as the speed-only layer (the offsets deferred)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the brake's and the safe's lines only, the pillars' offsets to a later
+version. The case for: the stop's mandate first, the scope tight. The case against, in
+this system: the rules' two demands are the version's two limbs — the reward's structure
+(the offsets' variants) is the staleness's fix's vehicle, and the deferral would leave
+the reward's slot open. Effort: medium. Robustness: 3/5. Verdict: rejected — the two
+limbs ship together.
+
+WHY IT HAPPENED
+Verdict: rejected — the two limbs ship together.
+
+FIX (took 3 days)
+replaced by Alternative C — The precomputed variants with the continuous selection
+(chosen)
+
+---
+
+## THE ENGINEERING DOCUMENTATION
+
+The errors this phase records that come from ENGINEERING_
+DOCUMENTATION.md and ENGINEERING_PARAMETER_JUSTIFICATION.md,
+not from a CHANGE.md chapter. The docs do not log days, so
+Found Day is n/a and FIX carries no day count.
+
+TOTAL ERROR : 2
+SMALL : 1
+BIG : 1
+
+E0080 | v6 | BIG | Found Day n/a | Fixed in n/a | the engineering documentation
+File : layers/layer10_controller.py
+Error : the high-speed servo oscillation — the gain scheduling fix
+Terminal : the engineering documentation
+
+WHAT HAPPENED
+A high-speed oscillation appeared in the servo log during a test at higher speed.
+
+WHY IT HAPPENED
+The Stanley gain was fixed while speed rose, so the steering authority grew unstable
+with speed.
+
+FIX
+The gain scheduling term was added: k drops 0.75 -> 0.395 as speed rises 0 -> 60%,
+eliminating the oscillation while keeping cornering authority at low speed.
+
+---
+
+E0081 | v6 | SMALL | Found Day n/a | Fixed in n/a | the engineering documentation
+File : layers/layer10_controller.py
+Error : the slow settling at low gain — the k < 0.5 failure
+Terminal : the engineering documentation
+
+WHAT HAPPENED
+In the gain-sweep test (k in {0.3..1.2}), gains below 0.5 took more than 2 s for the
+cross-track error to settle.
+
+WHY IT HAPPENED
+Too low a Stanley gain understeers the correction, so the cross-track error decays too
+slowly.
+
+FIX
+k = 0.75 selected as the base gain from the measured sweep.
+
+---
