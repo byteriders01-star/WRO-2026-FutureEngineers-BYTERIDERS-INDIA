@@ -1,0 +1,2327 @@
+PHASE 5 - LOCALIZATION - ERROR CATALOG
+
+ERROR TOTAL : 75
+SMALL : 65
+BIG : 10
+TOTAL ERROR : 615
+PERCENTAGE : 12.20%
+
+------------------------------------------------------------
+HOW TO READ THIS FILE
+1. Every error is real. It was parsed from the CHANGE.md history chapter of
+   the version that hit it (other/history/vX.Y/CHANGE.md, section 9). Nothing
+   here was invented to fill a quota.
+2. Errors are grouped by version, in the order the versions happened.
+3. E-numbers restart at E0001 for each phase file.
+4. SMALL errors are one-line fixes; BIG errors needed an investigation.
+5. 'Found Day N' is the day the error was first observed, as recorded in the
+   chapter. 'Fixed in N days' is the time between that day and the last
+   recorded day of the version.
+6. The FIX section is the fix exactly as the chapter documented it.
+------------------------------------------------------------
+ANATOMY OF ONE ERROR ENTRY
+
+E0001 | v5.0 | SMALL or BIG | Found Day N | Fixed in N days | Terminal
+File : the file or files involved, as named in the chapter
+Error : the error text, quoted from the chapter
+Terminal : where the error was observed, from the chapter
+
+WHAT HAPPENED
+What we saw - the symptom, from the chapter's Symptom section.
+
+WHY IT HAPPENED
+The root cause, from the chapter's Root cause section.
+
+INVESTIGATION (only for BIG errors)
+How we found it - the chapter's Investigation section.
+
+FIX (took N days)
+The fix, from the chapter's Fix section.
+
+------------------------------------------------------------
+THE ERROR CATALOG
+
+## v5.0 - `# V5.0 — DEAD RECKONING` (Day 118-119)
+
+TOTAL ERROR : 3
+SMALL : 2
+BIG : 1
+
+E0001 | v5.0 | BIG | Found Day 119 | Fixed in 1 day | practice
+File : dead_reckon.py
+Error : x_mm
+Terminal : practice
+
+WHAT HAPPENED
+On Day 119, the first day the integrator ran fused into the mission layer's lap counter,
+we measured endpoint error against a tape measure after a single lap of the practice
+track. A short 2.5 m segment run returned an endpoint error of ~5 cm — acceptable for
+the straight-line budget. A full lap, ~9.6 m of perimeter, returned an endpoint error of
+**20 cm** — four times the distance, and four times the error, but with the
+uncomfortable feel that the growth was faster than the distance. Two consecutive full
+laps returned 19 cm and 22 cm; a fresh-battery run, 16 cm. The numbers were
+reproducible, which is precisely what made them frightening: this was not noise, it was
+a *curve*.
+
+WHY IT HAPPENED
+Two error channels, exactly as derived in 5.1.3, and we had measured both without
+recognizing them as one story. The **velocity channel** is linear: the commanded speed
+proxy sits ~1.5-2% below true average speed at racing cadence, so over 9.6 m it
+contributes ~15-19 cm of longitudinal error — most of the observed 20 cm. The **heading
+channel** is quadratic: the gyro bias `b ≈ 0.07 deg/s` integrates into heading linearly
+(`ε(T) = b·T`, 2.8 deg over a 40 s lap), and that heading error then multiplies the
+lever arm inside the trig functions (`lat ≈ ∫v·sin(b·t)dt ≈ v·b·T²/2`), reaching ~0.5 m
+of lateral error over a 10 m lap if driven long enough. The 5 cm observation was a
+*short* segment where the linear term dominates and the quadratic term is still tiny (13
+mm at 2.5 m, 5.1.2). The 20 cm observation was the *full lap*, where the linear term has
+grown linearly (4× distance → ~4× linear error ≈ the 20 cm) and the quadratic term has
+begun to assert itself. The growth is quadratic because position is the **double
+integral** of the noise: the velocity noise integrates once into position (linear),
+while the heading noise is integrated once into heading (linear in time) and then
+*again* into position — inside the trig functions that multiply the distance lever arm
+(now quadratic in distance). The 20 cm we saw was the linear term playing out; the 0.5 m
+predicted bound is the quadratic term waiting. Both are the same disease — dead
+reckoning without feedback — at different doses.
+
+INVESTIGATION (only for BIG errors)
+We stopped guessing and did three controlled measurements on Day 119 afternoon and Day
+120 morning. *Measurement 1 — static bias.* We held the robot still, wheels
+short-braked, for 60 s, powered, and integrated the raw gyro. The residual heading drift
+over the 60 s was about 4 deg, i.e. an effective bias of ~0.07 deg/s — the number that
+dominates every derivation in this document. *Measurement 2 — error vs distance.* We ran
+the robot down a straight at 0.6 m/s and logged the endpoint error at 1 m, 2 m, 3 m, and
+5 m of travel, ten runs each. The mean errors were approximately 18 mm, 30 mm, 38 mm,
+and 82 mm. The growth from 3 m to 5 m is super-linear — 1.67× the distance produced 2.2×
+the error. The first three points are well fit by a linear term (the speed proxy); the
+last sticks up above that fit. A bending error curve is the signature of a quadratic
+term. *Measurement 3 — decompose by axis.* We logged `x_mm` and `y_mm` separately at the
+end of the full-lap runs. The x (longitudinal) error was consistently ~15-25 cm — the
+speed-proxy scale. The y (lateral) error was ~5-20 cm and *grew with how many turns the
+lap contained*: a lap with more corners had a larger lateral endpoint error even at the
+same perimeter. That is the tell — lateral error is heading-driven, and heading error
+accumulates with turn history: more yaw activity means more integrated bias.
+
+FIX (took 1 day)
+Two changes, applied together, and both are *usage* changes, not code changes — the
+integrator itself was never wrong: 1. **Limit dead reckoning to short segments.** The
+mission layer now consumes the pose only within a 2-3 m validity window from the last
+reset (R2). Inside 2 m the mean endpoint error is 22 mm (Section 10) — inside the
+mission's tolerance. The integrator is re-zeroed at every event boundary, so its error
+never accumulates past the linear regime. 2. **Fuse it with walls and vision as absolute
+corrections.** This is the mission of the whole v5.x phase, stated in the original
+change note and now made concrete: the VL53 wall distances (absolute in the cross-track
+axis) and the v4.9 lateral vote (absolute in the lateral axis) correct the pose at each
+segment boundary, and the UKF (deferred, 5.6) will do it continuously. Dead reckoning
+provides the between-correction prediction; the anchors stop the quadratic growth from
+ever reaching the danger zone. The fix is not "make dead reckoning more accurate" — the
+fix is "stop asking dead reckoning to be accurate over distances where it mathematically
+cannot be." Accuracy is fixed by fusion; honesty is fixed by the validity window.
+
+---
+
+E0002 | v5.0 | SMALL | Found Day 118 | Fixed in 2 days | the very first integration test
+File : dead_reckon.py
+Error : heading_rad
+Terminal : the very first integration test
+
+WHAT HAPPENED
+Mid-morning on Day 118, the very first integration test: we drove the robot through a
+90° turn — two opposite-phase 4WS sweeps through the corner — and the log showed
+`heading_rad` barely moving and `x_mm` growing in a perfectly straight line the whole
+way. The pose claimed the robot had driven through a 90° corner *without turning*. The
+odometry "worked" and was spectacularly wrong at the same time.**Initial hypotheses
+(honest list).** 1. "The yaw integrator is broken — theta isn't updating." 2. "The
+MPU6050 is mounted loose — it rotated with the chassis but the wiring glitched." 3.
+"We're reading the wrong register / the wrong axis of the IMU."
+
+WHY IT HAPPENED
+Not a bug in the nine lines — a bug in the *caller*, made invisible by the class's
+deliberate separation of concerns. Section 7.4 documents that the class trusts
+`self.theta` without verification; that trust is the feature that keeps heading
+ownership with the IMU pipe, and the same feature that let us forget to connect the
+pipe. The straight-line phantom was the class faithfully integrating commanded speed
+along a heading a sibling module had forgotten to feed.
+
+FIX (took 2 days)
+One wiring line at the call site: after the yaw pipe computes each wrapped delta, it
+assigns `dr.theta = yaw`. We also added a five-line smoke test to the integration
+harness: drive in a circle for 5 s, assert `heading_rad` changed by more than 0.5 rad; a
+straight-line result is now a test failure, not a log curiosity.
+
+---
+
+E0003 | v5.0 | SMALL | Found Day 118 | Fixed in 2 days | one recording session the pose froze
+File : dead_reckon.py
+Error : x_mm
+Terminal : one recording session the pose froze
+
+WHAT HAPPENED
+During one recording session the pose froze in place for about 150 ms while the robot
+visibly kept moving — then jumped forward. The lap counter, which reads `x_mm`,
+under-counted by one segment crossing.
+
+WHY IT HAPPENED
+The caller computed `dt` from the *last processed* timestamp, so a stall collapses into
+one big step rather than being amortized. The integrator handled the big `dt` perfectly
+(5.1.5: a straight-line big step is exact for constant `v`) — but the *mission* saw a
+frozen-then-jumping pose, which for a lap counter is a counting error, not just a
+cosmetic glitch.
+
+FIX (took 2 days)
+The caller now clamps `dt` to a maximum (100 ms) and, when the clamp fires, re-reads the
+commanded speed and applies the remainder as a second small step. The motion is
+preserved, the per-step leap is bounded, and the lap counter never sees a 152 ms
+tombstone. The class itself is unchanged — the clamp is exactly the caller duty R5
+assigned it.
+
+---
+
+## v5.1 - GYRO + ACCELEROMETER FUSION (Day 118)
+
+TOTAL ERROR : 7
+SMALL : 6
+BIG : 1
+
+E0004 | v5.1 | BIG | Found Day 118 | Fixed in 1 day | In the first prototype
+File : gyro_fusion.py
+Error : yaw
+Terminal : In the first prototype
+
+WHAT HAPPENED
+In the first prototype, we built what the short CHANGE.md candidly describes as "fused
+gyro yaw with accelerometer-derived heading hints": at low motion we nudged `yaw` toward
+`atan2(accel_y, accel_x)`-style "heading hints" derived from the accelerometer. On
+straights during acceleration and deceleration, the heading estimate jittered by
+**~3–5°** run-to-run and *within* a single straight, the yaw trace visibly bounced while
+the robot was driving straight. The dead-reckoned lap error got *worse*, not better,
+than v5.0's raw integration.
+
+WHY IT HAPPENED
+Physics, not software: during motion, the accelerometer measures `a_linear + g_body`,
+and neither term is yaw. Using it as a heading hint injects the linear acceleration
+directly into the heading estimate — a *differential* measurement (accelerometer)
+standing in for an *integral* quantity (heading) it cannot measure. The error was
+conceptual: we wanted an absolute reference, we had none (no magnetometer), and we
+fooled ourselves into thinking the accelerometer could fake one. `atan2` of the wrong
+combination is not a filter bug; it is a sensor-relevance bug.
+
+INVESTIGATION (only for BIG errors)
+We logged `accel_x`, `accel_y`, `accel_z`, gyro, and the yaw output at 100 Hz over a
+drive that included a straight with throttle ramps and a 90° corner. The data was
+unambiguous: during TB6612FNG throttle changes, `accel_x` spiked to **2–4 m/s²** — i.e.,
+the robot's own traction/braking linear acceleration. The naive blend was feeding
+`atan2(accel_y, accel_x)` of that signal in as a "heading hint". But `atan2` of the
+specific-force vector is a *tilt* angle in body coordinates, and in motion the vector is
+`a_linear + g`; the "hint" was therefore mostly linear-acceleration noise plus the
+gravity projection — a quantity that has *no physical relationship to yaw*. The jitter
+correlated perfectly with the accel spikes: throttle on, hint swings, yaw bounces.
+
+FIX (took 1 day)
+The dynamic trust gate (the shipped design): the accelerometer contributes *only*
+`trust_gyro = min(1.0, motion/1.5)`, a scalar gain on the gyro integrand — "high motion
+→ gyro wins, low motion → gate closes". The accel never produces an angle anywhere in
+the pipeline. The jitter channel was amputated, not filtered.
+
+---
+
+E0005 | v5.1 | SMALL | Found Day 118 | Fixed in 1 day | 0's lap verification
+File : gyro_fusion.py
+Error : 0.07 deg/s * 60
+Terminal : 0's lap verification
+
+WHAT HAPPENED
+In v5.0's lap verification, the robot sat at the start gate for ~40 s while the mission
+layer waited; the first corner was consistently missed by ~7–10 cm of lateral error, and
+the lap-end heading was off by ~3° even on clean runs. Post-hoc analysis attributed **~4
+deg/min** of pure standstill drift to the raw gyro integrator.
+
+WHY IT HAPPENED
+Gyro bias un-gated. A constant `b = 0.07 deg/s` present in the raw stream integrates
+into `b * T` regardless of whether the robot moves. At the start gate, `T = 40–60 s`, so
+2.8–4.2° of heading error before the mission begins. The physical mechanism: bias is a
+sensor defect (offset in the MEMS rate readout) that does not disappear when motion
+does; only a motion gate can stop it from being integrated.
+
+FIX (took 1 day)
+The motion gate: at standstill, `motion → 0`, `trust_gyro → 0`, and the integrated bias
+per sample `b * dt * trust_gyro → 0`. Measured post-fix standstill drift: 0.3 deg/min
+mean (Section 10, AC1 pass).
+
+---
+
+E0006 | v5.1 | SMALL | Found Day 118 | Fixed in 1 day | the gate flickered
+File : gyro_fusion.py
+Error : trust_gyro
+Terminal : the gate flickered
+
+WHAT HAPPENED
+During verification, while logging `trust_gyro` on a run with gentle throttle
+modulation, the gate flickered: `trust_gyro` oscillated between ~0.8 and 1.0 during
+near-steady acceleration, and separately between ~0.05 and ~0.3 at the noise floor
+during slow creep. The yaw trace showed tiny steps where the gate reopened.
+
+WHY IT HAPPENED
+A hard-threshold gate on a noisy signal always flickers when the signal lives near the
+threshold. `motion/1.5` is a *linear ramp*, not a step, which already softens it; but
+the EMA alpha of 0.1 lets the gate respond in ~100 ms, fast enough to chatter at the
+threshold crossing.
+
+FIX (took 1 day)
+Two-part. (1) **EMA damping is the mechanism**: we kept alpha = 0.1 (rather than raising
+it to 0.2 for snappier response) because slower EMA = smoother gate; the measured cost
+is the ~90–120 ms gate-open latency, which we accepted. (2) We reasoned about *magnitude
+of harm*: flicker at the top of the range (0.8 ↔ 1.0) is nearly harmless — both values
+are close to full-rate integration and the average over a 220 ms EMA window is ~0.95, so
+the 90° corner budget (AC2) is unaffected. Flicker at the bottom matters more, but the
+EMA's exponential decay means isolated noise does not hold the gate open (a spike decays
+35% in 100 ms, 9.8% in 220 ms). The remaining envelope limitation we recorded: on a ramp
+at rest, gravity projection puts `accel_x` near 1.7–2.5 m/s² (past the threshold), so
+the gate partially opens on inclines — mitigated by flat-field WRO geometry and fully
+solved by v5.2's 3-axis gravity separation. Documented, not fixed here.
+
+---
+
+E0007 | v5.1 | SMALL | Found Day 118 | Fixed in 1 day | a multi-turn test
+File : gyro_fusion.py
+Error : atan2
+Terminal : a multi-turn test
+
+WHAT HAPPENED
+During a multi-turn test, after the heading crossed the ±pi seam, the controller's
+heading-error term spiked to ~6.28 rad (a full turn) and the robot briefly steered
+wildly. The seam jump (3.14159 → −3.14159) itself was expected, but the *consumer* saw
+it as a massive error.
+
+WHY IT HAPPENED
+the seam is an artifact of principal-value angle representation, and any angle
+*difference* must itself be wrapped with `atan2(sin(ref - yaw), cos(ref - yaw))`.
+
+FIX (took 1 day)
+No change to `gyro_fusion.py` (it was correct); we fixed the consumer convention and
+documented it in the module contract: *all heading differences must be wrap-aware.*
+Added a 3-line unit test that drives yaw across the seam with the gate half-open and
+asserts `|yaw| <= pi` and that the wrapped difference is continuous.
+
+---
+
+E0008 | v5.1 | SMALL | Found Day 118 | Fixed in 1 day | the design review
+File : gyro_fusion.py
+Error : design rejected: Alternative C — Accel-only heading via atan2(y, x)
+Terminal : the design review
+
+WHAT HAPPENED
+"If the accel gives us the gravity vector, why not compute heading from it?" Because
+heading (yaw) is rotation about the *vertical* axis, and gravity is defined *along* the
+vertical axis. The horizontal components of the specific-force vector encode roll and
+pitch, not yaw; `atan2(accel_y, accel_x)` in the body frame is a tilt-related angle that
+tells you the direction of "down" in body coordinates — it is utterly degenerate for
+yaw. In the world frame you would need to know the world-frame horizontal components of
+gravity, which are zero by definition at any tilt you can actually correct. There is no
+two-axis or three-axis accelerometer configuration that yields world-frame yaw. This
+alternative is *physically impossible without a magnetometer*, and we wrote that
+conclusion down on Day 121 so nobody re-litigates it in a late-night debugging session.
+Rejected on physics.
+
+WHY IT HAPPENED
+This alternative is *physically impossible without a magnetometer*, and we wrote that
+conclusion down on Day 121 so nobody re-litigates it in a late-night debugging session.
+Rejected on physics.
+
+FIX (took 1 day)
+the chosen design, per the chapter's decision section
+
+---
+
+E0009 | v5.1 | SMALL | Found Day 118 | Fixed in 1 day | the design review
+File : gyro_fusion.py
+Error : design rejected: Alternative D — Two-state Kalman filter (yaw, gyro_bias)
+Terminal : the design review
+
+WHAT HAPPENED
+A proper 1D filter with state `[yaw, bias]`, gyro as the control input, and some
+pseudo-measurement of yaw. The strength: it would *estimate* the bias online instead of
+just gating it, and it hands the UKF a warm start. The weakness: a Kalman filter needs a
+*measurement* of the state, and the only candidate pseudo-measurement is... the
+accelerometer as a heading hint — which we already proved is physical noise in motion
+(Error 1 is the empirical version of this proof). Every pseudo-measurement we could feed
+it carries the same `a_linear + g` contamination. Without a magnetometer, a Kalman
+filter over yaw has *no* absolute update, so its bias estimate would still be an
+open-loop ramp. It adds machinery (state, covariance, tuning) with no new information.
+Deferred to the UKF in v5.9, which can fuse bias with the *correct* absolute
+measurements (walls, vision). Rejected for this version on information content, not on
+elegance.
+
+WHY IT HAPPENED
+Rejected for this version on information content, not on elegance.
+
+FIX (took 1 day)
+the chosen design, per the chapter's decision section
+
+---
+
+E0010 | v5.1 | SMALL | Found Day 118 | Fixed in 1 day | the design review
+File : gyro_fusion.py
+Error : design rejected: Alternative E — Commanded speed as the motion proxy
+Terminal : the design review
+
+WHAT HAPPENED
+Use the PWM / speed command from the control layer to decide "am I moving?". Effort
+small, no sensor noise, zero latency. Death by physics: *motor command ≠ actual motion
+under wheel slip.* The TB6612FNG commands current; the wheels may not move (stall on
+carpet, ramp gradient, servo-induced drag on the 4WS linkage, a bump). If the gate keys
+on command, a stalled throttle holds the gate fully open at standstill and we re-inherit
+4.2 deg/min of drift — exactly at the moment we most need it dead. Worse, the failure is
+*silent*: the robot believes it is moving because the software told it to. A *measured*
+motion proxy (accel) cannot be fooled by its own command. Rejected on the slip argument.
+
+WHY IT HAPPENED
+If the gate keys on command, a stalled throttle holds the gate fully open at standstill
+and we re-inherit 4.2 deg/min of drift — exactly at the moment we most need it dead.
+Worse, the failure is *silent*: the robot believes it is moving because the software
+told it to. A *measured* motion proxy (accel) cannot be fooled by its own command.
+Rejected on the slip argument.
+
+FIX (took 1 day)
+the chosen design, per the chapter's decision section
+
+---
+
+## v5.2 - FULL COMPLEMENTARY FILTER (Day 1-126)
+
+TOTAL ERROR : 9
+SMALL : 8
+BIG : 1
+
+E0011 | v5.2 | BIG | Found Day 124 | Fixed in 3 days | afternoon
+File : comp_filter_full.py
+Error : the high-yaw-rate divergence — the filter swung 18° in a tight 4WS turn
+Terminal : afternoon
+
+WHAT HAPPENED
+Day 124 afternoon, first live test on the training track. The robot executed the
+standard tight 4WS turn (the same 90° corner the v4.2 corner detector handles), and the
+pitch/roll telemetry showed the estimate swinging ±15-18° during the turn while the
+video confirmed the robot stayed visibly level. After the turn, the estimate took ~1.5 s
+to crawl back to near-zero.
+
+WHY IT HAPPENED
+The complementary filter's core assumption — 'the accel measures gravity' — fails
+exactly when the vehicle maneuvers hard, and the failure is *sustained*, not transient:
+the corrupted reference is trusted for the entire turn duration, which is an order of
+magnitude longer than the filter's time constant. The mechanism is physical (centrifugal
+acceleration enters the accel reading) and the filter structure guarantees the
+contamination passes through at weight (1−α). No bug in the code; a flaw in the
+assumption's domain.
+
+INVESTIGATION (only for BIG errors)
+The frozen log told the story in minutes. The gyro z rate during the turn peaked at
+96°/s — no saturation (the MPU6050's range is ±250°/s). The config file had α = 0.92 —
+no paste error. And the accel log showed the smoking gun: ay (lateral) read 2.3 m/s²
+during the turn against g = 9.81, and the raw accel tilt roll_a computed from (ay, az)
+was 13° from truth — exactly the atan(2.3/9.81) ≈ 13° the physics predicted at that yaw
+rate and speed. The estimate was not wrong; it was *honest about a corrupted reference*.
+The 8% blend weight injected 8% of that 13° error per sample — and with the corruption
+sustained for the whole ~1.8 s turn (15× the 115 ms time constant), the estimate fully
+tracked the error: 13° × (1−exp(−1.8/0.115)) ≈ 13°.
+
+FIX (took 3 days)
+Two changes shipped together, matching the error log's record: *reduce the accel's
+correction weight when the yaw rate exceeds 90°/s* (the gyro integral — which is exact
+through the turn — carries the estimate, and the corrupted reference is given only a
+token vote), and *clamp the heading to [-π, π] with atan2* (the yaw clamp, which lives
+in the yaw integrator, protects against wrap-related angle arithmetic when the vehicle
+spins hard). Plus the envelope: outside 90°/s, consumers get an invalid flag rather than
+a confident wrong number.
+
+---
+
+E0012 | v5.2 | SMALL | Found Day 125 | Fixed in 2 days | the ramp test
+File : comp_filter_full.py
+Error : the α = 0.92 ramp lag — 8° became 5.5° for a full second
+Terminal : the ramp test
+
+WHAT HAPPENED
+Day 125, the ramp test (AC2). The robot drove onto the 8° practice ramp; the pitch
+estimate rose from 0° toward 8° — and took ~1.2 s to get there, hovering at 5.5° for
+most of the ramp entry. The laser correction was therefore wrong by cos(5.5) vs cos(8)
+for a full second — about 6 mm on the front reading — while the front ToF was watching
+the ramp geometry change.
+
+WHY IT HAPPENED
+α = 0.92 was chosen for noise rejection (AC4), and the price is the 115 ms time constant
+— fine for steady-state correction, slow for transients. A ramp entry is a *fast* change
+in the thing we are measuring, and the filter smooths fast changes by design. This is
+the fundamental complementary-filter trade: every hertz of noise rejection is a hertz of
+response lost at the crossover.
+
+FIX (took 2 days)
+None to the filter — the lag is inside the envelope and the correction error over the
+window was bounded (≤ 6-8 mm on the front reading, and the worst case still 100× smaller
+than the 350 mm uncorrected ramp error from the v4.7 testing). What changed was the
+*test*: AC2 was re-scoped to measure the settled value (the estimate must reach 8° ±
+1.5° within 2 s of *settling*, not of *entry*), which the filter passes at 100%. The
+re-scope is recorded honestly: it is a specification correction, not a dodge — the
+settled accuracy is what the laser correction needs.
+
+---
+
+E0013 | v5.2 | SMALL | Found Day 125 | Fixed in 2 days | bench test
+File : comp_filter_full.py
+Error : gyro[0] * dt
+Terminal : bench test
+
+WHAT HAPPENED
+Day 125 bench test: while rotating the robot by hand at ~30°/s, the pitch estimate moved
+at ~1,700°/s — 57.3 times the physical rate — and the filter output looked like noise,
+oscillating between the angle's limits.
+
+WHY IT HAPPENED
+The ESP32 packet format documents the gyro in degrees per second (a human-friendly
+choice from v1.x), and the v5.1 `HeadingFusion` had converted radians at its own
+boundary. The new tilt filter was written from the MPU6050 datasheet's *radian*
+conventions, and the conversion was simply forgotten at the boundary between the packet
+and the filter. A unit mismatch at an interface — the classic units-of-measure bug,
+invisible to type checking and obvious only to someone who knows both sides of the
+interface.
+
+FIX (took 2 days)
+`math.radians(gyro[0]) * dt` in both axes, exactly as shipped. One line per axis, and
+the bench rotation test re-run: the estimate tracked the hand rotation at 1:1 within 1°.
+
+---
+
+E0014 | v5.2 | SMALL | Found Day 126 | Fixed in 1 day | venue
+File : comp_filter_full.py
+Error : roll = 0.0; pitch = 0.0
+Terminal : venue
+
+WHAT HAPPENED
+Day 126 morning, the venue staff had parked the robot on the ramp edge (about 7° of
+pitch) between sessions. On power-up, the fusion thread initialised and began publishing
+roll = 0°, pitch = 0° — level — for the first ~400 ms of the session, because the
+filter's state starts at zero and the accel correction pulls it to truth only over a few
+time constants. The mission layer, in its start sequence, sampled the tilt during that
+window and applied a level correction to the lasers while the robot was actually parked
+on a 7° slope.
+
+WHY IT HAPPENED
+The filter's initial state is 'level' — a reasonable default for a robot that boots on a
+flat floor, and wrong for a robot that boots on a slope. The initialisation is a hidden
+assumption about the world, and it is violated exactly when a robot is placed on an
+unlevel surface before power-up, which is a normal competition-day event (parking on the
+ramp, wedging against a wall, carrying the robot tilted).
+
+FIX (took 1 day)
+Two changes. First, the *consumer*: the mission layer's start sequence now waits until
+the envelope flag is stable and the tilt has been valid for 1 s before trusting it (the
+1 s covers 8-9 time constants — the estimate is converged to within 0.01° by then).
+Second, the *filter*: the initial state is now seeded from the first accel measurement
+(`__init__` keeps the level default, but the first `update` call seeds `roll`/`pitch`
+from `roll_a`/`pitch_a` when the state is still at the boot marker) — a one-line change
+that removes the entire transient class. We shipped both, and the regression test parks
+the bench rig on the 8° wedge, boots the filter, and asserts the estimate is within 1°
+of 8° within 100 ms of the first update.
+
+---
+
+E0015 | v5.2 | SMALL | Found Day 126 | Fixed in 1 day | during the ramp session
+File : comp_filter_full.py
+Error : LocalizationLayer
+Terminal : during the ramp session
+
+WHAT HAPPENED
+Day 126, during the ramp session, the robot momentarily tilted past 30° while
+negotiating the ramp's edge transition. The pitch estimate — correctly — followed to
+~38° before returning. The laser correction applied cos(38°) = 0.79 to the front
+reading: a 21% correction applied to a range measurement at a geometry where the pinhole
+model itself is breaking down. The front ToF briefly reported a phantom 790 mm corridor
+that was actually a 1,000 mm one.
+
+WHY IT HAPPENED
+The envelope existed on paper (the acceptance criteria) but not in code. Nothing
+enforced it: the filter returned numbers, the consumer used numbers, and the validity
+domain was nobody's job to check. This is the difference between a *documented* envelope
+and an *enforced* one.
+
+FIX (took 1 day)
+The envelope check moved into the data path: the fusion layer flags tilt as invalid when
+|roll| or |pitch| exceeds 30° or the yaw rate exceeds 90°/s, and consumers (starting
+with the laser correction) skip the correction when the flag is set — the raw range is
+closer to truth than a garbage-corrected one. The v5.9 `LocalizationLayer` ships this
+logic explicitly.
+
+---
+
+E0016 | v5.2 | SMALL | Found Day 1 | Fixed in 126 days | the design review
+File : comp_filter_full.py
+Error : design rejected: Alternative A — Pure gyro integration with periodic re-zeroing
+Terminal : the design review
+
+WHAT HAPPENED
+Integrate ω·dt and re-zero the estimate whenever the robot is detected at standstill (a
+ZUPT-style rule). Analysis: the *fast* path is perfect — no accel noise at all. But the
+re-zero assumption is 'standstill means level', which is false on the ramp (standing
+still on an 8° slope is a legitimate 8° pitch) and false during the brief hover of a
+throttle transition. The ramp alone kills this alternative. Effort: trivial. Robustness:
+2/5. Verdict: rejected.
+
+WHY IT HAPPENED
+Verdict: rejected.
+
+FIX (took 126 days)
+replaced by Alternative C — The complementary filter (chosen)
+
+---
+
+E0017 | v5.2 | SMALL | Found Day 1 | Fixed in 126 days | the design review
+File : comp_filter_full.py
+Error : design rejected: Alternative B — Raw accel tilt (atan2) used directly
+Terminal : the design review
+
+WHAT HAPPENED
+No filter at all. Analysis: the bench σ was 1.5° — three times the AC1 budget — and
+under motion the centrifugal contamination is *unfiltered*: the estimate would swing
+±12° through every hard turn, feeding the laser correction with garbage at exactly the
+moment the lasers matter most. Effort: zero. Robustness: 1/5. Verdict: rejected as the
+naive baseline.
+
+WHY IT HAPPENED
+Verdict: rejected as the naive baseline.
+
+FIX (took 126 days)
+replaced by Alternative C — The complementary filter (chosen)
+
+---
+
+E0018 | v5.2 | SMALL | Found Day 1 | Fixed in 126 days | the design review
+File : comp_filter_full.py
+Error : design rejected: Alternative D — A full 2-axis Kalman filter on (roll, pitch) with gyro as the motion model and accel as the measurement
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: this is the 'correct' textbook answer, and for tilt it is nearly identical in
+behaviour to the complementary filter (the KF's steady-state gain converges to a
+constant when the noise is stationary — and that constant gain IS the complementary
+weight). The KF adds the ability to estimate gyro bias as a state and to track a
+time-varying blend from measured noise — genuinely useful features. But the KF costs a
+3-4× computation, requires R and Q tuning *before* we have the UKF infrastructure (v5.5
+tunes Q/R from logs), and its bias-estimation benefit is small for a 3-day tilt filter
+that the UKF (v5.4) will subsume for the full state anyway. We chose the complementary
+filter for the tilt pair and deferred the statistical machinery to the UKF, where it
+pays for itself once. Effort: medium. Robustness: high. Speed: medium. Verdict:
+deferred, not rejected — the same reasoning the project applied to EKF vs UKF.
+
+WHY IT HAPPENED
+Verdict: deferred, not rejected — the same reasoning the project applied to EKF vs UKF.
+
+FIX (took 126 days)
+replaced by Alternative C — The complementary filter (chosen)
+
+---
+
+E0019 | v5.2 | SMALL | Found Day 1 | Fixed in 126 days | the design review
+File : comp_filter_full.py
+Error : design rejected: Alternative E — Mahony / Madgwick AHRS filters
+Terminal : the design review
+
+WHAT HAPPENED
+Industry-standard quaternion-based attitude filters. Analysis: genuinely excellent
+algorithms — but they estimate *full attitude* (quaternion, all three angles,
+magnetometer-ready), and we have no magnetometer. The complementary filter on two scalar
+angles does exactly the needed job with 1/20th the code and zero
+quaternion-normalisation edge cases. For a wheeled robot that never flies inverted, the
+30° envelope makes the quaternion machinery unnecessary. Effort: medium. Robustness:
+high. Verdict: rejected for this phase; noted as the v9.x polish candidate.
+
+WHY IT HAPPENED
+Verdict: rejected for this phase; noted as the v9.x polish candidate.
+
+FIX (took 126 days)
+replaced by Alternative C — The complementary filter (chosen)
+
+---
+
+## v5.3 - EKF IMPLEMENTATION (Day 128)
+
+TOTAL ERROR : 3
+SMALL : 2
+BIG : 1
+
+E0020 | v5.3 | BIG | Found Day 128 | Fixed in 1 day | on hypothesis
+File : ekf.py
+Error : P
+Terminal : on hypothesis
+
+WHAT HAPPENED
+During a 90° opposite-phase 4WS turn at 90 deg/s, the filter's position estimate
+diverged from the lane by **40+ cm** while `P` *shrank*, then snapped back violently
+when a wall measurement arrived at the end of the turn. The snapping-back was the
+visible panic: one cycle the robot believed it was in the middle of the lane with ±3 cm
+uncertainty; the next, a side wall reading forced a ~40 cm correction. On the scope,
+`P[0,0]` and `P[1,1]` were tight and shrinking through the entire turn while the true
+(tape-measured) position error grew to four tenths of a meter. **Initial hypotheses**
+(in order, honestly): (1) tuning — Q was too small to cover the turn's unmodeled
+dynamics; (2) measurement — R for the wall ranges was wrong, so updates were either
+ignored or over-trusted; (3) a sign error in H for the side-wall measurement, flipping
+the correction direction on one side of the turn. We spent the first morning of Day 128
+on hypothesis (1), inflating Q and watching the straight-run precision (locked on Day
+127) evaporate — the structural failure described in section 5.4.
+
+WHY IT HAPPENED
+The Taylor linearization drops higher-order terms. During the turn the state trajectory
+bends sharply (ω = 1.571 rad/s, radius ≈ 0.64 m), the local linear model is a straight
+line hugging the arc for one step, and the first-order expansion's error — the δ²/2 term
+from section 5.4 — is not negligible. Critically, the filter's *model* is the linearized
+one: both the mean (via `F @ x`) and the covariance (via `F @ P @ F.T`) ride the local
+Jacobian, so the filter's predictions drift in the same direction as the
+truth-but-not-as-much, the wall measurements "confirm" a slightly wrong trajectory
+within R's tolerance, and P shrinks as if information were being earned when it was not.
+The deterministic model error cannot be represented by the stochastic knob Q — no scalar
+variance describes "I am systematically wrong to the left right now." That is why tuning
+failed and why the fix had to change the propagation, not the noise.
+
+INVESTIGATION (only for BIG errors)
+We stopped guessing and replayed the failure: ran the filter on a *recorded log* of the
+hard-turn run with ground-truth wall distances overlaid, and plotted the innovation `z −
+H x` and the normalized innovation against the true error. The signature was
+unambiguous: during the turn, the normalized innovation stayed **small and within the
+gate** while the true error grew to 41 cm. Small innovation + shrinking P + large true
+error is the textbook definition of an *optimistic covariance* — the filter is confident
+and wrong. Hypotheses (2) and (3) died here: an R error or an H sign error would have
+produced *large* innovations, not small ones. The filter was not confused; it was
+smoothly, calmly wrong.
+
+FIX (took 1 day)
+Moved to sigma-point methods: the UKF in v5.4 propagates the *actual* nonlinear 4WS
+function through 2n+1 sigma points — for the eventual 6D state, 13 points, each fed
+through the true v·cos(θ) and v·sin(θ) — with no Jacobian anywhere in the pipeline. The
+curvature of the turn is sampled, not approximated.
+
+---
+
+E0021 | v5.3 | SMALL | Found Day 128 | Fixed in 1 day | many update cycles on a long
+File : ekf.py
+Error : P = P − K @ S @ K.T
+Terminal : many update cycles on a long
+
+WHAT HAPPENED
+After many update cycles on a long multi-lap log, some diagonal entries of P went
+**negative** — a negative variance, which the emergency layer naively square-rooted into
+an imaginary sigma and then treated as "we are infinitely certain," the exact opposite
+of the truth. The debugger showed P non-symmetric (off-diagonal pairs differing in the
+6th decimal) well before the negative diagonal appeared.
+
+WHY IT HAPPENED
+The simplified covariance update, in floating point, does not preserve symmetry or
+positive-semidefiniteness when `S` is ill-conditioned — and the 5×5 system drifts over
+thousands of cycles even when each individual cycle looks fine.
+
+FIX (took 1 day)
+Symmetrize every cycle: `P = (P + P.T) / 2` at the end of `update`, which restores
+symmetry cheaply (logged asymmetry went from ~1e-6 to 0). For the longer horizon we
+adopted the Joseph form `P = (I − K H) P (I − K H)ᵀ + K R Kᵀ`, symmetric PSD by
+construction, and — in the same hygiene pass — replaced `np.linalg.inv(S)` with
+`np.linalg.solve` for the gain where the dimension allowed it.
+
+---
+
+E0022 | v5.3 | SMALL | Found Day 128 | Fixed in 1 day | Heading error grew on **left turns
+File : ekf.py
+Error : ∂x/∂θ = −v·sinθ·dt
+Terminal : Heading error grew on **left turns
+
+WHAT HAPPENED
+Heading error grew on **left turns only**. Right turns were clean; left turns
+accumulated a heading bias of a few degrees per lap. Because the error was asymmetric,
+the robot consistently cut the inside of left-hand corners on the track.
+
+WHY IT HAPPENED
+Hand-derived Jacobians get sign errors; that is a property of doing a trig derivative
+once and trusting it. The `d(sin)/d(theta)` and `d(cos)/d(theta)` pair — derivative of
+sin is cos, derivative of cos is −sin — is exactly the pair where a dropped minus sign
+is invisible on the bench and lethal on the track.
+
+FIX (took 1 day)
+We wrote a finite-difference Jacobian check: numerically compute F by perturbing each
+state by ε and measuring `(f(x+ε) − f(x))/ε` against the analytic F. It found the
+flipped sign immediately. We corrected the matrix, re-ran the check to agreement (max
+elementwise error < 1e-6), and re-ran the left-turn lap: bias gone.
+
+---
+
+## v5.4 - UKF IMPLEMENTATION (VAN DER MERWE) (Day 130-132)
+
+TOTAL ERROR : 10
+SMALL : 9
+BIG : 1
+
+E0023 | v5.4 | BIG | Found Day 130 | Fixed in 3 days | afternoon
+File : layer3_sensor_fusion.py
+Error : Wm
+Terminal : afternoon
+
+WHAT HAPPENED
+Day 130 afternoon, first replay of the v5.3 failure log through the new UKF: the
+position error through the hard turn was *worse* than the EKF's — 55 cm — and the
+covariance shrank as the error grew, the exact optimistic-covariance signature the
+version was built to kill. The failure was repeatable and deterministic.
+
+WHY IT HAPPENED
+A silent identifier collision: the misspelled name 'Merked' resolved to a leftover
+global whose value was numerically plausible (it summed to 0.83, not 0), so no crash, no
+warning, and a filter that systematically down-weighted every sigma point — the cloud's
+mean was computed from 83% of its mass, and the covariance was systematically
+underestimated. The mechanism is Python's forgiving name resolution meeting a stale
+global — a class of failure that type checkers catch only if the name is not valid
+anywhere, and this one was valid somewhere.
+
+INVESTIGATION (only for BIG errors)
+The deterministic replay made bisection easy. The wall-geometry signs were verified
+first (they were right — the left/right pair's difference pinned y correctly in a
+standalone test). The lag blends were isolated by replaying with commanded speed equal
+to state speed (no change). Then the weight arrays: we printed `Wm` and `Wc` at
+construction — and the numbers were *not* the Van der Merwe values. The formula
+`self.lamb = self.alpha**2 * (self.n + self.k) - self.n` was correct, but the identifier
+in the weight line — `1.0 / (2 * (self.n + self.lamb))` — referenced a variable that a
+refactor had renamed, and the typo'd name fell back to a stale module-level constant
+through Python's name resolution, silently producing weights that summed to 0.83 instead
+of 1.0. The sum-check that this version ships did not exist yet — that is exactly why
+Error 1's fix is the check.
+
+FIX (took 3 days)
+Two changes, exactly as the error log records: (1) the typo corrected, and (2) the
+*weight sanity check* added — a unit test asserting sum(Wm) == 1.0 within 1e-9 at
+construction, run in the harness before any replay. The re-run after the fix: 12 cm
+through the same hard turn, covariance consistent (NEES-style ratio 1.1) — AC1 passed.
+
+---
+
+E0024 | v5.4 | SMALL | Found Day 131 | Fixed in 2 days | practice
+File : layer3_sensor_fusion.py
+Error : numpy.linalg.LinAlgError: Matrix is not positive definite
+Terminal : practice
+
+WHAT HAPPENED
+Day 131, first live run on the practice ramp: the fusion thread crashed with
+`numpy.linalg.LinAlgError: Matrix is not positive definite` inside
+`_generate_sigma_points`, taking the 100 Hz loop down with it.
+
+WHY IT HAPPENED
+Two compounding mechanisms: the simplified covariance update (P − KSKᵀ) is symmetric
+only in exact arithmetic, and the one-sided sensor mask (R3's valid-subset design,
+correct in principle) allowed the y variance to be squeezed by a single observation
+direction for a sustained period. The v5.3 journal had flagged the numeric-hygiene
+lesson; this version's *construction* (Cholesky) made the violation fatal instead of
+silent — which is the intended behaviour — but the failure mode (a crash) was not the
+intended one (a guarded update).
+
+FIX (took 2 days)
+Three changes. (1) The covariance is symmetrised after every update: `P = (P + P.T) / 2`
+— one line, the standard cheap guard. (2) The predict path's Q·dt was verified to keep
+the diagonal bounded above zero (it does, at the v5.5 Q values). (3) The LinAlgError
+guard (already in the code for the update inversions) was extended around the
+*sigma-point generation* as well — a failed Cholesky now logs and preserves the previous
+state, per the fail-open rule, instead of crashing the loop.
+
+---
+
+E0025 | v5.4 | SMALL | Found Day 131 | Fixed in 2 days | afternoon
+File : robot_config.json
+Error : robot_config.json
+Terminal : afternoon
+
+WHAT HAPPENED
+Day 131 afternoon: the filter converged to a steady-state y of +4.0 cm on a track
+section where the tape-measured centreline offset was +0.3 cm. The convergence was
+stable and repeatable — the filter was confidently wrong in y.
+
+WHY IT HAPPENED
+The venue constants 300/1000 are *calibration data*, not physics. They encode a specific
+wall geometry that the training venue did not exactly match at every section, and a
+linear observation model with a wrong offset produces a *constant* innovation that the
+filter cannot distinguish from a real y offset — the filter is mathematically correct
+and physically wrong. The mechanism is the classic 'good filter, wrong model' failure:
+the innovation is absorbed as state, because the filter has no way to know the model
+constant is wrong.
+
+FIX (took 2 days)
+The constants were re-measured with the tape on the Day 131 session: left baseline 303
+mm, right baseline 301 mm, front baseline 995 mm (the ramp section). The filter was
+re-run with the measured baselines and the y bias dropped to 0.8 cm. The full
+generalisation — reading the baselines from `robot_config.json` — is v5.8's cross-sensor
+verification work, and this version records the numbers for it.
+
+---
+
+E0026 | v5.4 | SMALL | Found Day 132 | Fixed in 1 day | the log replay showed the velocity state oscillating ±80 mm/s around the true cr
+File : layer3_sensor_fusion.py
+Error : the accel channel fought the speed state
+Terminal : the log replay showed the velocity state oscillating ±80 mm/s around the true cr
+
+WHAT HAPPENED
+Day 132, the log replay showed the velocity state oscillating ±80 mm/s around the true
+cruise speed during straight driving, with the accel observation pulling it up and the
+wall... the front observation pushing it down.
+
+WHY IT HAPPENED
+A measurement model whose noise is mis-stated: R_imu[1] = 80 was tuned for the gyro's
+scale by habit, but the accel channel's real noise at cruise is an order of magnitude
+larger (vibration σ ≈ 40-60 (mm/s²)²... the honest number: the log's accel variance was
+~50 (m/s²)² = 5e4 in the code's units). The filter used the stated R to weight the
+observation; the mismatch made the accel path overweighted, injecting its vibration into
+the speed state. This is exactly the class of problem v5.5's tuning exists to fix, and
+it appeared here because the version shipped with initial R values, per the deferral
+decision.
+
+FIX (took 1 day)
+Day 132's stopgap: R_imu[1] raised from 80 to 800 in the local config (a 10× loosening)
+— the oscillation dropped to ±25 mm/s. The proper fix — measuring R from the logged data
+— is the entire mission of v5.5, and the journal records the numbers (the log-measured
+accel variance) for that version to consume.
+
+---
+
+E0027 | v5.4 | SMALL | Found Day 132 | Fixed in 1 day | during a prolonged log session with the camera pipeline saturating the Pi
+File : layer3_sensor_fusion.py
+Error : if dt <= 0 or dt > 0.5: dt = 0.01
+Terminal : during a prolonged log session with the camera pipeline saturating the Pi
+
+WHAT HAPPENED
+Day 132, during a prolonged log session with the camera pipeline saturating the Pi (the
+perception engine's worst frame occasionally exceeded 60 ms), the fusion layer's
+velocity state drifted to 1.6 m/s — far above any commanded speed — and stayed there for
+several seconds before the wall updates dragged it back.
+
+WHY IT HAPPENED
+The lag constants (0.85/0.15, 0.70/0.30) are cadence-dependent: they were tuned for the
+nominal 10 ms cycle, and they silently change meaning when the loop stalls. The dt clamp
+at 0.5 s was designed to catch a dead loop, not a slow one — the slow region (15-500 ms)
+passed through unguarded, and the filter faithfully integrated a 100 Hz-tuned model at
+100 ms steps. The mechanism is the classic 'model tuned at one rate, run at another'
+failure, and the dt clamp masked it by keeping the filter alive.
+
+FIX (took 1 day)
+Two changes. First, the velocity lag was made dt-normalised — the blend coefficient was
+converted from a per-sample constant to an exponential decay with a fixed time constant:
+v += (target − v)·(1 − exp(−dt/τ)) with τ = 66 ms (matching the 0.15 per-sample rate at
+100 Hz). The same conversion applied to the omega blend. Second, the dt clamp threshold
+was tightened to 0.2 s (the loop's worst measured stall), so any longer gap triggers the
+fail-open path — preserving the last state rather than integrating a stale cadence.
+
+---
+
+E0028 | v5.4 | SMALL | Found Day 131 | Fixed in 2 days | evening
+File : layer3_sensor_fusion.py
+Error : R_sub = np.diag([self.R_vl53[i, i] for i in valid_indices])
+Terminal : evening
+
+WHAT HAPPENED
+Day 131 evening, during the sensor-mask robustness sweep (Layer 3), a run with only the
+front sensor valid produced a y-estimate that wandered ±6 cm — far outside the 2.5 cm
+band the other partial masks achieved.
+
+WHY IT HAPPENED
+A two-way indexing convention collision: the prediction array was indexed by list
+position (m = number of valid sensors), while the R slice was built from sensor ids. For
+L-only and R-only the two conventions coincide at position 0, so the bug was invisible
+in the first masks tested — the F-only case was the first mask where position and id
+disagreed, and the mismatch surfaced as an underweighted front observation and a
+wandering y.
+
+FIX (took 2 days)
+The prediction loop was rewritten to index both the predictions and the R slice by the
+same valid-list position, with a unit test over all 7 masks asserting that the R
+diagonal used for each mask matches the expected sensor variances. The F-only sweep
+re-ran: y stayed within 2.1 cm of the full-mask run.
+
+---
+
+E0029 | v5.4 | SMALL | Found Day 130 | Fixed in 3 days | the design review
+File : layer3_sensor_fusion.py
+Error : design rejected: Alternative A — Keep the EKF, add iterated refinement (IEKF)
+Terminal : the design review
+
+WHAT HAPPENED
+Re-linearize at the updated estimate and repeat the update a few times. Analysis: it
+reduces the linearization error but does not eliminate it — the motion model is still
+approximated by a local Jacobian, and the hard-turn failure mode would merely shrink,
+not vanish. It also adds a tuning knob (iteration count) and a cost multiplier with no
+structural guarantee. Effort: medium. Robustness: 3/5. Verdict: rejected — it is the
+EKF's failure with a bandage.
+
+WHY IT HAPPENED
+Analysis: it reduces the linearization error but does not eliminate it — the motion
+model is still approximated by a local Jacobian, and the hard-turn failure mode would
+merely shrink, not vanish. Verdict: rejected — it is the EKF's failure with a bandage.
+
+FIX (took 3 days)
+replaced by Alternative B — The UKF (chosen)
+
+---
+
+E0030 | v5.4 | SMALL | Found Day 130 | Fixed in 3 days | the design review
+File : layer3_sensor_fusion.py
+Error : design rejected: Alternative C — Particle filter
+Terminal : the design review
+
+WHAT HAPPENED
+Sample the state distribution, weight by measurements, resample. Analysis: the gold
+standard for non-Gaussian, highly nonlinear problems — and the pose problem here is
+*not* one of them: the noise is approximately Gaussian, the model is smooth, and 6
+dimensions need thousands of particles for a sane effective sample size, costing tens of
+milliseconds per cycle. The UKF achieves 95% of the particle filter's benefit at 1% of
+its cost, in a regime the particle filter is not even needed for. Effort: very high.
+Robustness: 5/5. Speed: 1/5. Verdict: rejected for the season.
+
+WHY IT HAPPENED
+Verdict: rejected for the season.
+
+FIX (took 3 days)
+replaced by Alternative B — The UKF (chosen)
+
+---
+
+E0031 | v5.4 | SMALL | Found Day 130 | Fixed in 3 days | the design review
+File : layer3_sensor_fusion.py
+Error : design rejected: Alternative D — Linear KF on a precomputed trajectory model
+Terminal : the design review
+
+WHAT HAPPENED
+Run the standard linear KF with F assembled per motion regime (straight, turn) from
+precomputed constants. Analysis: this is the EKF's structure with a cruder Jacobian —
+the per-regime F still cannot represent a continuous turn, and regime switching is a new
+failure mode. Effort: low. Robustness: 2/5. Verdict: rejected.
+
+WHY IT HAPPENED
+Analysis: this is the EKF's structure with a cruder Jacobian — the per-regime F still
+cannot represent a continuous turn, and regime switching is a new failure mode. Verdict:
+rejected.
+
+FIX (took 3 days)
+replaced by Alternative B — The UKF (chosen)
+
+---
+
+E0032 | v5.4 | SMALL | Found Day 130 | Fixed in 3 days | the design review
+File : layer3_sensor_fusion.py
+Error : design rejected: Alternative E — Dead reckoning plus wall snap (the v5.0 pattern)
+Terminal : the design review
+
+WHAT HAPPENED
+Skip the filter entirely; snap the pose to the walls whenever both side sensors read.
+Analysis: v5.0's own journal already records the quadratic-error argument against this —
+the snap only corrects lateral position, never heading or longitudinal, and the 20 cm
+lap error would return. Effort: low. Robustness: 2/5. Verdict: rejected — this is the
+pattern v5.4 exists to replace.
+
+WHY IT HAPPENED
+Verdict: rejected — this is the pattern v5.4 exists to replace.
+
+FIX (took 3 days)
+replaced by Alternative B — The UKF (chosen)
+
+---
+
+## v5.5 - UKF TUNING Q/R (Day 133-134)
+
+TOTAL ERROR : 8
+SMALL : 7
+BIG : 1
+
+E0033 | v5.5 | BIG | Found Day 133 | Fixed in 2 days | the v5.4 filter's behaviour on the tuning log
+File : ukf_tuning.py
+Error : the oscillation the version was born to fix — 80 mm/s of velocity wobble
+Terminal : the v5.4 filter's behaviour on the tuning log
+
+WHAT HAPPENED
+Day 133, the v5.4 filter's behaviour on the tuning log: the velocity state oscillated
+±80 mm/s around cruise during straight driving — the exact evidence v5.4's Error 4 had
+recorded, reproduced deterministically on the new log.
+
+WHY IT HAPPENED
+A mis-stated R for a state-dependent-noise channel. The accel's noise at standstill (80)
+and at cruise (7.8e3) differ by two orders of magnitude, and a constant R can only be
+right at one of them. The shipped R_imu[1] = 80 was right at standstill — where the
+filter barely needs the channel — and wrong at cruise — where the filter actively uses
+it. The mechanism is the fundamental tension between 'R must be a constant' and 'the
+channel's noise is a function of state'.
+
+INVESTIGATION (only for BIG errors)
+The measurement script's first output was the accel channel's cruise residual: ~7.8e3 in
+the filter's units, against the shipped R_imu[1] = 80. The filter was *weighting* the
+noisy cruise channel as if it were 100× cleaner than it is — the gain for that channel
+was far too high, and the channel's vibration was being injected into the speed state
+directly. The Q[3] hypothesis was tested by re-running with Q[3] × 10: the oscillation
+changed shape but not magnitude — the channel weighting was the cause, not the speed
+process noise.
+
+FIX (took 2 days)
+Two-part, both recorded. First, the *structural* acknowledgement: no constant R can
+serve this channel, and the measured evidence (the 100× swing) is written into the
+journal as the formal argument for v5.6's adaptive R. Second, the *interim* mitigation:
+the pseudo-accel observation was made conditional — the filter's cruise handling relies
+on the speed lag blend and the wall updates, and the accel channel's role as a 'dv/dt
+check' was downgraded in the v5.5-validated configuration by the adaptive path's arrival
+being scheduled immediately after. The version's honesty: the oscillation was *reduced*,
+not eliminated, and the reduction came from the measurement revealing the problem's
+shape, not from a perfect fix.
+
+---
+
+E0034 | v5.5 | SMALL | Found Day 133 | Fixed in 2 days | morning
+File : ukf_tuning.py
+Error : the stationary-window trap — the first R measurements were 4× too optimistic
+Terminal : morning
+
+WHAT HAPPENED
+Day 133 morning, the first measurement run produced R_vl53 = (3.0, 3.2, 4.5) — four
+times tighter than the values that eventually shipped. The validation replay with these
+R values showed the pose hugging the wall measurements too hard: the y estimate followed
+every wall-speckle flicker, jittering ±8 mm around the true line.
+
+WHY IT HAPPENED
+A non-representative measurement window: the sensor's noise is time-dependent after
+power-up, and the 'stationary' protocol had sampled the settling transient, not the
+steady state. The 4× optimism is exactly the kind of error that a hand-tuner would also
+make (tuning at boot, testing at minute 10), which is why the measurement protocol had
+to specify *when* in the session the window is taken.
+
+FIX (took 2 days)
+The protocol was corrected: the stationary window is taken from the *last* 60 s of the
+session (post-run idle), and the session's whole history is checked for variance drift
+before the window is accepted. Re-measured: 11.8/12.3/19.6 mm² — matching the long-run
+figures. The validation replay with the corrected R: y jitter dropped to ±3 mm and the
+NEES ratio moved from 0.7 (overconfident) to 1.03.
+
+---
+
+E0035 | v5.5 | SMALL | Found Day 133 | Fixed in 2 days | afternoon
+File : ukf_tuning.py
+Error : the Q[2] heading guess that the gate replay exposed
+Terminal : afternoon
+
+WHAT HAPPENED
+Day 133 afternoon, the gated-replay Q estimation: the heading residual per step measured
+1e-4 rad² — but the initial guess from v5.4 (0.0001, i.e. the same number) looked
+'right', so we almost shipped it unexamined. The anomaly: on the two hard-turn segments
+of the log, the heading residual *tripled* to 3e-4 rad², while the straight segments
+held at 1e-4.
+
+WHY IT HAPPENED
+A heterogeneous residual: Q must absorb the model's worst-case error, but the worst case
+(turns) is 3× the common case (straights). Choosing Q[2] = 3e-4 (absorb the turns)
+over-softens the straights; choosing 1e-4 (match the straights) leaves the filter
+overconfident in turns — a subtle version of the exact failure the phase is fighting.
+
+FIX (took 2 days)
+The shipped value is 1e-4, with the turn residual documented — the *structural* fix
+belongs to the omega blend's tuning (the 0.70/0.30 constants are v5.5-adjacent but were
+deliberately left for the v5.9 pipeline's full-state work). The NEES audit on the
+validation log confirmed the straight-dominated sessions stay consistent at 1e-4; the
+turn segments' overconfidence is bounded by the outlier gate's arrival in v5.7 and
+recorded as known debt.
+
+---
+
+E0036 | v5.5 | SMALL | Found Day 134 | Fixed in 1 day | the second session's Q[5]
+File : ukf_tuning.py
+Error : the reproducibility scare — session B's bias-walk estimate doubled
+Terminal : the second session's Q[5]
+
+WHAT HAPPENED
+Day 134, the second session's Q[5] (bias walk) measured 2.1e-5 vs session A's 1e-5 —
+outside the ±30% bar for that single element, and a genuine scare for AC4.
+
+WHY IT HAPPENED
+The bias walk is slow, and slow processes need long windows to estimate. The 10-minute
+session is marginal for Q[5]: the estimator's variance is comparable to the estimate
+itself. This is not a sensor problem — it is a statistical-power problem for a small
+number.
+
+FIX (took 1 day)
+Q[5] was set to 1.5e-5 (the combined-session estimate), and AC4 was re-scoped honestly:
+the ±30% bar applies to the *fast* channels (sensors, position, speed); the bias walk is
+estimated from the combined sessions with its standard error recorded (factor of ~2),
+and its exact value has bounded sensitivity (the bias state's convergence test, AC5,
+passed at both endpoints).
+
+---
+
+E0037 | v5.5 | SMALL | Found Day 133 | Fixed in 2 days | afternoon
+File : ukf_tuning.py
+Error : the innovation-blend trap — the first gyro R was 60% too loose because we measured the wrong stream
+Terminal : afternoon
+
+WHAT HAPPENED
+Day 133 afternoon, the gyro channel's first measurement: the script reported σ² ≈ 6.1e-4
+(rad/s)² — 60% above the 3.8e-4 that eventually shipped. The value was not obviously
+wrong: it was the right order of magnitude, the right units, and the right channel; the
+only reason we caught it at all was that the VL53 numbers (Error 2's corrected windows)
+had already made us suspicious of anything that did not match the lab's long-run
+figures.
+
+WHY IT HAPPENED
+We computed R from a blended stream (innovations) when R is defined only for the raw
+channel (z = h(x) + v, v ~ N(0, R)). The innovation stream is R plus the filter's belief
+— a useful number for auditing the *filter* (that is S), but not the number for tuning
+the *sensor*. The two serve two different purposes, and the journal now names them
+separately: R comes from raw channels; S-consistency is the audit.
+
+FIX (took 2 days)
+The protocol was split into two explicit stages with two explicit names. Stage one,
+*raw-channel variance*: the stationary window's sensor packets are pulled directly from
+the raw log columns (gyro z, accel x, the three VL53s) and the variance is computed on
+those — giving the shipped 3.8e-4 gyro, 11.8/12.3/19.6 mm² VL53s. Stage two,
+*innovation-consistency check*: the tuned filter re-runs the same log and the innovation
+variance is compared against the predicted S — giving the NEES-style audit ratio 1.03.
+The first number feeds the matrices; the second number audits the first's effect; never
+the same number for both. The check that would have caught Error 5 immediately (raw vs
+innovation variance comparison, expected gap ≈ H·P·Hᵀ) is now a printed diagnostic in
+the tuning script's report.
+
+---
+
+E0038 | v5.5 | SMALL | Found Day 133 | Fixed in 2 days | the design review
+File : ukf_tuning.py
+Error : design rejected: Alternative A — Hand-tune by observation (the status quo)
+Terminal : the design review
+
+WHAT HAPPENED
+Run the filter, watch the pose, adjust the diagonals by hand until the output 'looks
+good'. Analysis: this is how the v5.4 initial matrices were born, and the version's own
+Error 4 is the evidence against it — a hand-tuned R produced a visible oscillation that
+a measured one removed. Hand-tuning has three structural problems: it is not
+reproducible (two engineers converge to different matrices), it is not transferable
+(venue changes invalidate it), and it cannot separate causes (a pose error could come
+from Q, R, or the model — the hand-tuner guesses which). Effort: low per iteration,
+unbounded total. Robustness: 2/5. Verdict: rejected as the baseline, accepted only as
+the final *sanity check* (the tuned matrices should still 'look good').
+
+WHY IT HAPPENED
+Hand-tuning has three structural problems: it is not reproducible (two engineers
+converge to different matrices), it is not transferable (venue changes invalidate it),
+and it cannot separate causes (a pose error could come from Q, R, or the model — the
+hand-tuner guesses which). Verdict: rejected as the baseline, accepted only as the final
+*sanity check* (the tuned matrices should still 'look good').
+
+FIX (took 2 days)
+replaced by Alternative A — Hand-tune by observation (the status quo)
+
+---
+
+E0039 | v5.5 | SMALL | Found Day 133 | Fixed in 2 days | the design review
+File : ukf_tuning.py
+Error : design rejected: Alternative C — Full Bayesian noise estimation (innovation-based, e.g. adaptive filtering theory: estimate Q and R online from the innovation covariance)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: this is the 'proper' statistical answer and it is what v5.6's adaptive path
+gestures toward — but as a *replacement* for measurement it is circular (the innovation
+statistics depend on the current Q/R, so the estimator chases its own tail), slow to
+converge (thousands of samples), and fragile on short sessions. The measured-first
+approach sets a *prior* that the adaptive path then tracks; doing it the other way round
+(adaptive from a bad prior) is how filters oscillate into divergence. Effort: high.
+Robustness: 3/5. Verdict: rejected as the primary method, adopted as the v5.6 evolution
+*on top of* the measured prior.
+
+WHY IT HAPPENED
+Verdict: rejected as the primary method, adopted as the v5.6 evolution *on top of* the
+measured prior.
+
+FIX (took 2 days)
+replaced by Alternative A — Hand-tune by observation (the status quo)
+
+---
+
+E0040 | v5.5 | SMALL | Found Day 133 | Fixed in 2 days | the design review
+File : ukf_tuning.py
+Error : design rejected: Alternative D — Datasheet-only R, literature Q
+Terminal : the design review
+
+WHAT HAPPENED
+Take the VL53 and MPU6050 datasheets' noise figures verbatim and the standard textbook Q
+shapes. Analysis: the datasheet numbers were already shown to be optimistic (the lab
+measured front σ ≈ 4.4 mm vs the datasheet's ~1-2 mm — multi-path and floor texture),
+and a textbook Q knows nothing about the MG995's deadband or the TB6612's throttle
+jitter. This alternative ignores the system reality that the measurements exist
+precisely to capture. Effort: trivial. Robustness: 2/5. Verdict: rejected.
+
+WHY IT HAPPENED
+Analysis: the datasheet numbers were already shown to be optimistic (the lab measured
+front σ ≈ 4.4 mm vs the datasheet's ~1-2 mm — multi-path and floor texture), and a
+textbook Q knows nothing about the MG995's deadband or the TB6612's throttle jitter.
+Verdict: rejected.
+
+FIX (took 2 days)
+replaced by Alternative A — Hand-tune by observation (the status quo)
+
+---
+
+## v5.6 - ADAPTIVE NOISE ESTIMATION (Day 133-138)
+
+TOTAL ERROR : 9
+SMALL : 8
+BIG : 1
+
+E0041 | v5.6 | BIG | Found Day 136 | Fixed in 3 days | replay
+File : adaptive_noise.py
+Error : the wild oscillation — the seed's own error, reproduced live on Day 136
+Terminal : replay
+
+WHAT HAPPENED
+The first prototype — an undamped, high-gain estimator (alpha = 0.9, no bounds, feeding
+R directly into the UKF) — produced exactly the failure the seed note names: on the Day
+136 replay, the estimate oscillated wildly around the true noise level, and the filter's
+pose followed it, the velocity state wobbling ±60 mm/s and the heading drifting off the
+wall by several degrees before recovering. The oscillation had a period of roughly
+200-400 ms — several times the estimator's own time constant — and it grew when we
+increased the prototype's alpha to make it 'more responsive'.
+
+WHY IT HAPPENED
+Two design errors in one: the forward gain (alpha) was too high for the loop's
+round-trip latency, and the output was unbounded. The first made the loop marginally
+stable; the second made the margin a cliff — any disturbance large enough to pump the
+estimate walked it into the latch. The seed's lesson — *adaptivity needs damping or it
+becomes its own noise source* — is precisely this: the 'noise source' is the adaptive
+loop's own oscillation, injected into the filter it was meant to serve.
+
+INVESTIGATION (only for BIG errors)
+The first clue was the period: 200-400 ms is far longer than the estimator's τ (11
+samples at alpha 0.9 — about 110 ms at 100 Hz). An estimator alone cannot oscillate
+slower than its own time constant; something was *delaying* the loop. The delay was the
+filter itself: the estimate changes R, R changes K, K changes the state, the state
+changes the innovation, the innovation drives the estimate — and the UKF's measurement
+update has its own settling behaviour (P and K converge over several cycles). The loop's
+round-trip latency was ~2-4 cycles, and with the forward gain at 0.9, the loop's phase
+margin collapsed — the textbook condition for oscillation. A second, compounding factor:
+with no bounds, a large innovation (a wall speckle or a floor seam) pumped the estimate
+upward, which raised R, which made the *next* innovations larger still relative to the
+filter's now-weak belief (R high ⇒ the filter trusts the sensor less ⇒ the innovation,
+measured against the state the filter mostly ignores the sensor for, stays large) — a
+positive-feedback latch, not a damped response.
+
+FIX (took 3 days)
+Three changes, in order of effect: (1) alpha reduced to 0.1 — a 10× gain cut against a
+loop whose latency is 2-4 cycles, restoring a comfortable phase margin (the τ =
+10-sample memory also gives the 10× spike margin of AC4); (2) the bounds [1.0, 100.0]
+per channel — the latch is now structurally impossible, because the estimate cannot
+leave the prior band regardless of input; (3) the ordering rule (pre-update innovation
+only) which removed the extra feedback path found in review. The replayed result: the
+estimate converged smoothly, the oscillation vanished, and the velocity-state variance
+returned below the regression bar.
+
+---
+
+E0042 | v5.6 | SMALL | Found Day 137 | Fixed in 2 days | after the alpha reduction
+File : adaptive_noise.py
+Error : the first day's fix overshot — alpha 0.1 was too damped for the accel channel's throttle transients
+Terminal : after the alpha reduction
+
+WHAT HAPPENED
+Day 137, after the alpha reduction: the *front-VL53* estimate behaved beautifully, but
+the *accel* channel's estimate lagged the throttle transitions — when the robot
+accelerated hard out of a corner, the accel noise rose sharply for ~1 s, and the
+estimate took ~10-15 s to follow, leaving the filter overconfident in the accel channel
+(R too low) exactly during the aggressive driving where that channel's noise spikes. The
+NEES audit caught it: the sub-window during and after hard acceleration scored 1.7 — out
+of the [0.5, 1.5] band.
+
+WHY IT HAPPENED
+A single time constant cannot serve two time scales. The VL53 channels' noise changes
+are slow (floor texture, surface gloss — minutes), so τ = 100 ms is fast enough for them
+and the short τ maximises the spike margin. The accel channel's noise is *event-driven*
+(throttle, steering load, battery load) with sub-second events — the same τ was too
+short to average across the event, so the estimate chased the event's instantaneous
+value and the filter's R was wrong at the event's peak.
+
+FIX (took 2 days)
+Per-channel time constants: the accel instance uses a longer alpha (τ ~ 500 ms), chosen
+so the estimate integrates across the throttle event rather than chasing it; the VL53
+instances keep alpha = 0.1. The bounds stayed per-channel. The replayed audit: the
+hard-acceleration sub-window's NEES ratio dropped from 1.7 to 1.2 — in band, with the
+estimate now reflecting the transient's average energy.
+
+---
+
+E0043 | v5.6 | SMALL | Found Day 137 | Fixed in 2 days | afternoon
+File : adaptive_noise.py
+Error : the unit confusion — treating the MAD estimate as a variance made R 2.5× too small
+Terminal : afternoon
+
+WHAT HAPPENED
+Day 137 afternoon, the R4 unit-check regression (frozen loop must reproduce the v5.5
+shipped R within 5%) failed on the first integration attempt: the front-VL53 instance,
+fed a stream whose statistics matched the v5.5 measurement, produced R = 4.8 instead of
+12.0 — a 2.5× shortfall, off the shipped value by more than a factor of two.
+
+WHY IT HAPPENED
+The estimator's statistic and the covariance's statistic are different quantities — MAD
+is a linear scale, variance is quadratic — and the conversion between them is a known
+constant (0.798) that the first integration omitted. The silent part: nothing in the
+filter complained. An R 2.5× too small makes the filter overconfident (NEES < 1), which
+is *calm*, not alarming — the failure mode v5.5's Error 5 warned about, repeated in a
+new form.
+
+FIX (took 2 days)
+The conversion stage: R = (est/0.798)² − HPHᵀ, with the floor at the channel's
+lo-derived minimum. The R4 regression went green: frozen loop reproduces 12.0 within 1%.
+The unit-check is now a permanent test — it is the cheapest possible guard against the
+whole family of unit/scale errors, and it exists because this version (and v5.5 before
+it) actually hit that family.
+
+---
+
+E0044 | v5.6 | SMALL | Found Day 138 | Fixed in 1 day | the full-pipeline integration test
+File : adaptive_noise.py
+Error : the start-up blind spot — the estimator's 100-200 ms transient corrupted the first wall updates
+Terminal : the full-pipeline integration test
+
+WHAT HAPPENED
+Day 138, the full-pipeline integration test: the first ~15 wall updates at race start
+produced visibly wrong crosstrack behaviour — the y estimate wandered ±40 mm for the
+first ~half-second before settling. The NEES sub-window audit flagged the first
+sub-window at 0.4 (overconfident) — the *opposite* of the battery-drift direction.
+
+WHY IT HAPPENED
+The default seed is a compromise value (safe, inside every channel's band — that was
+deliberate, see Error 5 below), but a compromise is wrong for every channel at race
+start, and the race's first half-second is exactly when the pose needs its best accuracy
+(the start-line alignment sets the race's initial heading error budget).
+
+FIX (took 1 day)
+The race-start re-seed: at power-on, each instance is seeded from the v5.5 measured
+prior for its channel (front 3.5, sides 2.7, accel at its band's middle), not from the
+class default. The transient collapsed from ~15 updates to ~1-2 (only the residual
+difference between the prior and the actual condition). The NEES first sub-window went
+to 1.1. The class default remains 10.0 — documented as the safe generic fallback — but
+the integration layer never relies on it at race start.
+
+---
+
+E0045 | v5.6 | SMALL | Found Day 136 | Fixed in 3 days | and one worth recording because it produced a decision the journal must preserve
+File : ukf_tuning.py
+Error : AdaptiveNoise()
+Terminal : and one worth recording because it produced a decision the journal must preserve
+
+WHAT HAPPENED
+Not a runtime failure — a design-review conflict on Day 136, and one worth recording
+because it produced a decision the journal must preserve. In review, the class's default
+seed was challenged: 'est = 10.0 is wrong for every channel — the front is 3.5, the
+sides 2.7; why does the generic default not carry the v5.5 values?'
+
+WHY IT HAPPENED
+A genuine tension between 'safe generic default' and 'optimal specific default' —
+resolved by separating the two: the class default is the safe generic (10.0, inside
+every channel's plausible band, converging in ~10-20 samples), and the *measured* priors
+live in the integration layer's per-instance construction, where their provenance is
+visible next to their values.
+
+FIX (took 3 days)
+The decision is recorded here: the class default stays 10.0; the integration layer seeds
+from the measured prior at race start (Error 4's fix). The rule: *a generic component's
+defaults are a contract for unspecified use, and specific measured values belong in the
+specific configuration — never buried in the generic default*. This is the same rule
+that keeps the v5.5 matrices in `ukf_tuning.py` (with provenance) rather than inline in
+the filter. ---
+
+---
+
+E0046 | v5.6 | SMALL | Found Day 133 | Fixed in 6 days | the design review
+File : adaptive_noise.py
+Error : design rejected: Alternative A — Keep the fixed v5.5 matrices (do nothing)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the default, and the honest baseline. Its case: the v5.5 measurements proved
+the noise is *mostly* stationary — the sensors' channel variances agreed within ±5%
+across two sessions (AC4 of v5.5). Its case against: the same journal contains the 100×
+accel swing and the battery argument; a race is precisely the condition the two-session
+agreement did *not* cover (same-day, similar battery state). A fixed-R filter on a
+draining pack drifts out of NEES consistency — we verified this by replaying the
+race-simulation log with the fixed matrices before writing any adaptive code: the
+gyro-adjacent channels' innovations grew ~40% as the battery sagged, pushing the ratio
+past 1.5. Effort: zero. Robustness: 3/5 (good in the lab, degrading on the day).
+Verdict: rejected as the sole answer, retained as the prior and the fallback.
+
+WHY IT HAPPENED
+A fixed-R filter on a draining pack drifts out of NEES consistency — we verified this by
+replaying the race-simulation log with the fixed matrices before writing any adaptive
+code: the gyro-adjacent channels' innovations grew ~40% as the battery sagged, pushing
+the ratio past 1.5. Verdict: rejected as the sole answer, retained as the prior and the
+fallback.
+
+FIX (took 6 days)
+replaced by Alternative C — EMA of |innovation| with bounds (chosen)
+
+---
+
+E0047 | v5.6 | SMALL | Found Day 133 | Fixed in 6 days | the design review
+File : adaptive_noise.py
+Error : design rejected: Alternative B — Full online covariance matching (innovation-based, e.g. Novák-type adaptive filtering: estimate the innovation covariance from a sliding window and back-out Q and R jointly)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the 'proper statistics' answer. The sliding-window innovation covariance
+(computed over, say, 1000 samples) is a direct estimator of S = HPHᵀ + R, and with a
+model for P one can in principle separate the two. Its problems, in this system: (a) it
+is *slow* — 1000 samples at 100 Hz is 10 s of memory, so the estimator cannot
+distinguish a battery-drift (minutes) from a floor change (seconds) reliably; (b) it is
+*circular* — the innovation covariance depends on the current R through K and P, so the
+estimator chases its own tail (the exact circularity v5.5's Alternative C analysis
+rejected); (c) it is *fragile* — a single outlier burst corrupts a whole window of the
+estimate, which is the failure the seed note warns about. Effort: high. Robustness: 3/5.
+Verdict: rejected as the primary, its window-based thinking retained as the verification
+tool (the NEES audit is exactly such a windowed covariance check).
+
+WHY IT HAPPENED
+Its problems, in this system: (a) it is *slow* — 1000 samples at 100 Hz is 10 s of
+memory, so the estimator cannot distinguish a battery-drift (minutes) from a floor
+change (seconds) reliably; (b) it is *circular* — the innovation covariance depends on
+the current R through K and P, so the estimator chases its own tail (the exact
+circularity v5.5's Alternative C analysis rejected); (c) it is *fragile* — a single
+outlier burst corrupts a whole window of the estimate, which is the failure the seed
+note warns about. Verdict: rejected as the primary, its window-based thinking retained
+as the verification tool (the NEES audit is exactly such a windowed covariance check).
+
+FIX (took 6 days)
+replaced by Alternative C — EMA of |innovation| with bounds (chosen)
+
+---
+
+E0048 | v5.6 | SMALL | Found Day 133 | Fixed in 6 days | the design review
+File : adaptive_noise.py
+Error : design rejected: Alternative D — Battery-state lookup table (map R to battery voltage)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: attractive because the *cause* of the biggest non-stationarity (battery drain)
+is directly measurable — the ESP32 already samples the pack voltage for telemetry. The
+case against: (a) the mapping R(voltage) is itself a measurement campaign (many sessions
+at many voltages), which is v5.5's protocol repeated 20 times; (b) it cannot capture the
+*floor/surface* non-stationarity at all — the venue could change the VL53 noise with the
+battery constant; (c) it models the cause, not the effect — motor noise depends on
+throttle and load as well as voltage. Its one real merit: a voltage-triggered R *reset*
+(re-anchor the estimate when the pack crosses a threshold) would speed convergence.
+Effort: high. Robustness: 3/5. Verdict: rejected as the primary; the reset idea was
+adopted as a bolt-on (the estimator re-seeds from the prior at race start).
+
+WHY IT HAPPENED
+The case against: (a) the mapping R(voltage) is itself a measurement campaign (many
+sessions at many voltages), which is v5.5's protocol repeated 20 times; (b) it cannot
+capture the *floor/surface* non-stationarity at all — the venue could change the VL53
+noise with the battery constant; (c) it models the cause, not the effect — motor noise
+depends on throttle and load as well as voltage. Verdict: rejected as the primary; the
+reset idea was adopted as a bolt-on (the estimator re-seeds from the prior at race
+start).
+
+FIX (took 6 days)
+replaced by Alternative C — EMA of |innovation| with bounds (chosen)
+
+---
+
+E0049 | v5.6 | SMALL | Found Day 133 | Fixed in 6 days | the design review
+File : adaptive_noise.py
+Error : design rejected: Alternative E — Adaptive Q as well as R
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the battery argument applies to Q too (motor torque noise → speed process
+noise), and v5.5 measured Q[3] rising 15% under load. The case against doing both now: Q
+is *not directly observable* — the estimator consumes innovations, which are R-dominated
+(the measurement side); adapting Q from the same signal is statistically ill-posed (two
+unknowns, one equation) and would double the loop's degrees of freedom exactly when the
+loop's stability margin is the whole point. The honest scope: adapt R (observable),
+leave Q fixed with the v5.5 measured values, and re-run the Q measurement at the venue
+(the protocol is cheap). Effort: medium. Robustness: 2/5 jointly. Verdict: rejected for
+this version; Q re-measurement scheduled for the venue visit.
+
+WHY IT HAPPENED
+Verdict: rejected for this version; Q re-measurement scheduled for the venue visit.
+
+FIX (took 6 days)
+replaced by Alternative C — EMA of |innovation| with bounds (chosen)
+
+---
+
+## v5.7 - OUTLIER REJECTION (Day 137-141)
+
+TOTAL ERROR : 9
+SMALL : 8
+BIG : 1
+
+E0050 | v5.7 | BIG | Found Day 139 | Fixed in 3 days | the first gate prototype
+File : outlier_reject.py
+Error : the magic-number gate — 30% of good readings rejected (the seed's error, reproduced live)
+Terminal : the first gate prototype
+
+WHAT HAPPENED
+Day 139, the first gate prototype: the clean replay log (60,000 readings, known-good
+pose, v5.5-tuned matrices) showed a catastrophic rejection rate — 30% of genuine VL53
+readings failed the gate. The pose, starved of updates, drifted off the wall within
+seconds. The number was so large that we initially suspected the covariance plumbing,
+not the threshold.
+
+WHY IT HAPPENED
+We chose a threshold by feel (2.5, 'round, defensible-looking') instead of by the
+distribution. The gate's whole mathematical content is its threshold; a threshold with
+no quantile behind it is a coin flip with a preference. The 30% rejection was not a
+tuning miss — it was the gate's false-rejection *rate being designed, accidentally, to
+30%*.
+
+INVESTIGATION (only for BIG errors)
+The first clue was the *shape* of the rejections: they were uniformly distributed
+through the log, with no clustering at panels or seams — a statistical mismatch, not a
+physical one. The second clue was the arithmetic: a hand-picked threshold of 2.5 on m²
+for a 1-DOF gate. The theory: for d ~ N(0, S), m² ~ χ²₁, and P(χ²₁ > 2.5) ≈ 0.11 — an
+11% rejection rate even with a perfect covariance. With the real log's modest
+non-Gaussianity (the sensors' measured kurtosis, the wall texture's low-level systematic
+offsets — the things the NEES audit tolerates at 5% but not at 11%), the rate climbed to
+30%. The threshold was not 'a bit tight' — it was the wrong statistic's quantile, off by
+an order of magnitude in rejection rate. (The equivalent error in the 2-DOF IMU gate
+would have been P(χ²₂ > 2.5) ≈ 0.29 — a 29% rejection there too. The seed note's lesson
+— *outlier gates need a statistically sound threshold, not a magic number* — is this
+arithmetic, nothing more and nothing less.)
+
+FIX (took 3 days)
+The threshold became the chi-square 95% quantile for the update's dimension: 3.84 for
+the 1-DOF VL53 gates, 5.99 for the 2-DOF IMU gate, 7.81 for the 3-DOF batch gate. The
+clean-log rejection rate dropped from 30% to 4.6% — the statistical contract, delivered
+by the statistic. The Monte-Carlo calibration (4.98% vs 5% theory) then verified that
+the shipped threshold behaves like its promise.
+
+---
+
+E0051 | v5.7 | SMALL | Found Day 139 | Fixed in 3 days | afternoon
+File : outlier_reject.py
+Error : the covariance geometry — R alone in the denominator rejected the start-up updates
+Terminal : afternoon
+
+WHAT HAPPENED
+Day 139 afternoon, after the threshold fix: the rejection rate on the *clean log's first
+2 seconds* was still ~40%, while the rest of the log was fine (4.6%). The pose's
+start-up behaviour was worse than before the gate existed.
+
+WHY IT HAPPENED
+A gate that tests the innovation against a covariance *other than the innovation's true
+covariance* is testing the wrong distribution. The innovation's spread is the sum of the
+model's uncertainty (HPHᵀ) and the sensor's (R) — the same sum the NEES audit uses
+(v5.5), the same sum the gain computation uses. The R-only version was the v5.5 Error 5
+family in a new costume: the blend structure mis-read, with the filter's own belief
+mistaken for the sensor's noise.
+
+FIX (took 3 days)
+The denominator became S + R (HPHᵀ + R), plumbed from the UKF's current P — the same
+object the update's gain uses, by construction. The start-up rejection rate fell to the
+log's baseline, and the start-up NEES sub-window (which the gate had been silently
+emptying) returned to band.
+
+---
+
+E0052 | v5.7 | SMALL | Found Day 140 | Fixed in 2 days | during the per-channel integration
+File : outlier_reject.py
+Error : the degrees-of-freedom mistake — 5.99 on a 1-DOF gate, a tighter gate than anyone intended
+Terminal : during the per-channel integration
+
+WHAT HAPPENED
+Day 140, during the per-channel integration: the VL53 gates (1-DOF) initially used the
+shipped file's CHI2_95 = 5.99 (copied from the IMU gate's constant — it was *right
+there* in the shared module), and the clean-log rejection rate was 1.4% instead of ~5%.
+Not a visible failure — the pose was fine — but the calibration check (AC2) caught the
+mismatch: the observed rate disagreed with the 5% theory by 3.6 percentage points,
+outside the binomial tolerance.
+
+WHY IT HAPPENED
+A shared constant (CHI2_95 = 5.99, named for its probability, not its dimension) applied
+to gates of different dimensions. The constant's *name* ('95') said what it was; its
+*comment* ('2 DOF') said which dimension it belonged to; but the integration code copied
+the number without the comment's constraint. The lesson is about naming: a threshold
+whose meaning depends on a dimension must carry the dimension in its name (CHI2_95_1DOF,
+CHI2_95_2DOF, CHI2_95_3DOF), not in a comment.
+
+FIX (took 2 days)
+Three named constants in the integration layer; each gate configured with its
+dimension's quantile; the calibration re-run for each (all observed within tolerance of
+5%). The shipped file keeps CHI2_95 = 5.99 with its '2 DOF' comment — it is the IMU
+gate's constant, correctly named for its purpose; the error was in the integration, and
+the fix was the naming discipline plus the calibration's catch.
+
+---
+
+E0053 | v5.7 | SMALL | Found Day 140 | Fixed in 2 days | the first full-pipeline replay with the gate and the adaptive estimator both act
+File : outlier_reject.py
+Error : the sequencing trap — the ungated estimator absorbed a rejected burst
+Terminal : the first full-pipeline replay with the gate and the adaptive estimator both act
+
+WHAT HAPPENED
+Day 140, the first full-pipeline replay with the gate and the adaptive estimator both
+active: the pose was clean (the gate did its job), but the *adaptive estimates* had
+drifted — the front-VL53 estimate had climbed from 3.5 to 9.8 over the Day 138 log's
+gloss-panel section, and stayed elevated for the rest of the replay, softening the front
+channel's R and flattening the NEES ratio to 1.4 (in band, but trending the wrong way).
+
+WHY IT HAPPENED
+The gate and the estimator were sequenced so that the estimator saw what the gate had
+already judged unbelievable. The estimator's contract is 'track the noise of the
+*believed* stream'; feeding it the rejected stream violates the contract at the burst
+scale. The v5.6 journal's own debt note — 'a corrupted innovation stream would feed the
+estimator itself, and the bounds contain the damage but do not remove it' — was this
+error, named in advance and hit anyway, because the sequencing rule had not been written
+down.
+
+FIX (took 2 days)
+The R5 ordering, made literal in code: gate first; on rejection, *nothing* updates —
+neither the filter nor the estimator. The rejected burst now touches nothing; the
+estimator's front-channel estimate stayed at its true level (3.7) through the
+gloss-panel section, and the NEES ratio returned to 1.07. The fix is one line of
+sequencing and the entire lesson of the version's architecture.
+
+---
+
+E0054 | v5.7 | SMALL | Found Day 141 | Fixed in 1 day | race
+File : outlier_reject.py
+Error : the start-up starvation — the gate emptied the first seconds of the race
+Terminal : race
+
+WHAT HAPPENED
+Day 141, the full-race simulation: the first 1.5 seconds of the start (the robot's
+launch from the line) showed a rejection rate of ~35% on the VL53 channels, and the
+pose's start-up convergence — the race's initial heading error budget (v5.6 Error 4's
+concern) — degraded measurably.
+
+WHY IT HAPPENED
+Two belief-transient problems compounding at the worst possible time: the filter's
+covariance understates its true uncertainty during the start-up convergence, and the
+adaptive R lags the launch's noise rise. The gate is only as good as its covariance's
+truthfulness, and both inputs to the gate were at their least truthful precisely when
+the filter needs its observations most.
+
+FIX (took 1 day)
+Three-part. First, the start-up P₀ re-check: the launch covariance was widened (v5.4's
+P₀ design had been tuned for the bench, not the launch's motion), bringing the
+covariance closer to the launch's true spread. Second, the estimator's start-up: the
+launch's noise rise is now pre-seeded — the integration layer's start-up sequence
+(v5.6's race-start re-seed) includes a launch-phase floor for the adaptive R, so the
+gate's geometry is not too tight during the first second. Third, the gate's alpha during
+start-up: the first 100 samples accept a *wider* gate (the 99% quantile) as a start-up
+grace, narrowing to the 95% quantile once the estimator has converged — a bounded, named
+exception, not a magic relaxation. The start-up rejection rate fell from 35% to 4.1%,
+and the pose's start-up convergence met the race's heading-error budget.
+
+---
+
+E0055 | v5.7 | SMALL | Found Day 137 | Fixed in 5 days | the design review
+File : outlier_reject.py
+Error : design rejected: Alternative A — Clamp or saturate the innovation (limiting)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the simplest idea — replace d with a saturated version (e.g., clamp at 3σ)
+before the update. Its fatal flaw: a clamped outlier is still *entered into the state* —
+the filter still moves K·(3σ) in the outlier's direction, which for the Day 138 event (a
+400 mm innovation) is still a large, wrong move. Clamping preserves the sample's
+*direction* (which is wrong — a wall-bounce distance is not a large version of the true
+distance, it is a different quantity) while only limiting its magnitude. It also breaks
+the filter's mathematics: the update formula assumes Gaussian d, and a clamped d has a
+bizarre distribution that the covariance no longer describes. Effort: trivial.
+Robustness: 2/5. Verdict: rejected — it fails the mission statement ('never yank the
+pose') by construction.
+
+WHY IT HAPPENED
+Verdict: rejected — it fails the mission statement ('never yank the pose') by
+construction.
+
+FIX (took 5 days)
+replaced by Alternative C — The chi-square gate (chosen)
+
+---
+
+E0056 | v5.7 | SMALL | Found Day 137 | Fixed in 5 days | the design review
+File : outlier_reject.py
+Error : design rejected: Alternative B — Adaptive outlier rejection via the filter itself (heavy-tailed noise model, e.g. Student-t measurement noise)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the statistically 'proper' answer to outliers is to model the measurement
+noise as heavy-tailed, which the filter then handles naturally (a Student-t likelihood
+gives the filter a robust influence function — the equivalent of automatic gating). The
+case against, in this system: (a) the UKF's update is built around Gaussian likelihoods;
+a Student-t update requires either a variational approximation or a sampling approach —
+a major surgery on the v5.4 filter whose Gaussian machinery is measured, audited, and
+trusted; (b) the heavy-tail model blurs the distinction between 'a large genuine
+reading' (a real wall change — the ramp edge, a corridor narrowing) and 'an outlier' —
+the filter would discount both, exactly the failure the ramp work (v5.2) fought; (c) the
+gate's hard refusal, by contrast, keeps the Gaussian machinery intact and simply refuses
+the samples that do not belong to it. Effort: high. Robustness: 3/5. Verdict: rejected
+for this version; the heavy-tail idea is recorded as the theoretical upgrade path if the
+hard gate ever proves insufficient.
+
+WHY IT HAPPENED
+The case against, in this system: (a) the UKF's update is built around Gaussian
+likelihoods; a Student-t update requires either a variational approximation or a
+sampling approach — a major surgery on the v5.4 filter whose Gaussian machinery is
+measured, audited, and trusted; (b) the heavy-tail model blurs the distinction between
+'a large genuine reading' (a real wall change — the ramp edge, a corridor narrowing) and
+'an outlier' — the filter would discount both, exactly the failure the ramp work (v5.2)
+fought; (c) the gate's hard refusal, by contrast, keeps the Gaussian machinery intact
+and simply refuses the samples that do not belong to it. Verdict: rejected for this
+version; the heavy-tail idea is recorded as the theoretical upgrade path if the hard
+gate ever proves insufficient.
+
+FIX (took 5 days)
+replaced by Alternative C — The chi-square gate (chosen)
+
+---
+
+E0057 | v5.7 | SMALL | Found Day 137 | Fixed in 5 days | the design review
+File : outlier_reject.py
+Error : design rejected: Alternative D — Gate by raw range limits only (reject readings outside [min, max] of plausible distances)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: a cheap pre-filter — reject a VL53 reading below 20 mm or above 4000 mm,
+reject an accel reading above 3g, etc. Its value: catches the *absurd* outliers (the I²C
+glitch's 65535) at zero statistical cost. Its insufficiency: the harmful outliers are
+the *plausible-looking* ones — the Day 138 event's 218 mm reading is a perfectly legal
+distance (a real wall could be 218 mm away); it is an outlier because the *innovation*
+is huge, not because the raw value is absurd. Range limits cannot see that. Effort:
+trivial. Robustness: 2/5 alone, 5/5 combined with the chi-square gate. Verdict: accepted
+as a *companion* pre-filter (it protects the gate's own mathematics from absurd inputs —
+the gate's covariance inversion is meaningless for a 65535 reading), rejected as the
+primary.
+
+WHY IT HAPPENED
+Analysis: a cheap pre-filter — reject a VL53 reading below 20 mm or above 4000 mm,
+reject an accel reading above 3g, etc. Range limits cannot see that. Verdict: accepted
+as a *companion* pre-filter (it protects the gate's own mathematics from absurd inputs —
+the gate's covariance inversion is meaningless for a 65535 reading), rejected as the
+primary.
+
+FIX (took 5 days)
+replaced by Alternative C — The chi-square gate (chosen)
+
+---
+
+E0058 | v5.7 | SMALL | Found Day 137 | Fixed in 5 days | the design review
+File : outlier_reject.py
+Error : design rejected: Alternative E — The innovation filter (exponential smoothing of the measurement before it enters the update)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: smooth the raw readings with a light EMA before the UKF consumes them, on the
+theory that a smoothed stream is outlier-free. Its fatal flaw: a smoother delays the
+signal as much as the noise — the ramp edge (v5.2's hard-won feature) would be blunted
+by the same memory that blunts the spikes, and the filter's whole design assumes it sees
+the measurement *when it arrives* (the split-rate architecture of v5.9 depends on it).
+The outlier is not removed by smoothing; it is smeared across several updates,
+contaminating more of the state with a smaller amount each. Effort: low. Robustness:
+2/5. Verdict: rejected.
+
+WHY IT HAPPENED
+Verdict: rejected.
+
+FIX (took 5 days)
+replaced by Alternative C — The chi-square gate (chosen)
+
+---
+
+## v5.8 - CROSS-SENSOR VERIFICATION (Day 142-144)
+
+TOTAL ERROR : 9
+SMALL : 8
+BIG : 1
+
+E0059 | v5.8 | BIG | Found Day 142 | Fixed in 3 days | the audit's first run on the v4.x-era log
+File : tilt_compensate.py
+Error : the pillar episode's 5 cm, rediscovered by the audit's very first run
+Terminal : the audit's first run on the v4.x-era log
+
+WHAT HAPPENED
+Day 142, the audit's first run on the v4.x-era log (the session that cost two days in
+the corner work): the front channel's mean residual came out at +48 mm. The left and
+right channels: +1.1 and −0.9 mm — clean. The front channel was the pillar episode's
+ghost, sitting in the data all along.
+
+WHY IT HAPPENED
+The mount offset was known informally (the v4.x diagnosis had named the 50 mm) but never
+measured into the configuration and never entered the observation model's geometry. The
+filter absorbed the bias into the pose (the 5 cm displacement the corner work fought),
+the variance audits could not see it (it was a mean), and the fudge compensated the
+symptom while the cause lived in the data.
+
+INVESTIGATION (only for BIG errors)
+The left/right channels' cleanliness ruled out a pose geometry error (a pose error would
+displace *all* channels' predictions, and the side channels' means were near zero). The
+front channel's +48 mm mean, constant across the log's sections, matched the direction
+of the mount offset: the front sensor sits 50 mm forward of the reference point, so the
+*measured* distance to the wall ahead is 50 mm shorter than the *predicted* distance
+from the reference — residual = predicted − measured = +50 mm, observed +48 mm (the 2 mm
+gap is the measurement uncertainty and the sensor's mean behaviour). The v4.x log's own
+data was the diagnosis: the phase had *recorded* the error and *fixed* the behaviour
+(the wall-follow fudge) without ever fixing the cause.
+
+FIX (took 3 days)
+The bench measurement (the Day 142 protocol), the config entry with provenance, and the
+audit re-run: the front channel's mean residual fell from +48 mm to −1.3 mm. The fudge
+from the v4.x wall-follow logic was removed — it had been compensating a transform that
+the config now handles exactly.
+
+---
+
+E0060 | v5.8 | SMALL | Found Day 143 | Fixed in 2 days | the tilt compensation's first bench test on the ramp
+File : tilt_compensate.py
+Error : raw_mm * math.cos(...)
+Terminal : the tilt compensation's first bench test on the ramp
+
+WHAT HAPPENED
+Day 143, the tilt compensation's first bench test on the ramp: the compensated front
+reading was *further* from the true 600 mm than the raw reading — 612 mm against a true
+600, with the raw at 609. The correction was making the geometry worse, not better.
+
+WHY IT HAPPENED
+A transcription error between the derivation and the code, invisible to inspection (both
+forms look plausible in isolation) and only exposed by the bench test against a known
+true distance. The geometry itself was never in doubt — the error was in the code's one
+character.
+
+FIX (took 2 days)
+The branch corrected to the multiply form (the shipped `raw_mm * math.cos(...)`), and
+the bench test re-run: 600 mm true, 600.4 compensated — inside the sensor's noise band.
+The geometric verification (AC3) then passed on both the ramp and the synthetic roll.
+
+---
+
+E0061 | v5.8 | SMALL | Found Day 143 | Fixed in 2 days | afternoon
+File : tilt_compensate.py
+Error : the sentinel's hole — a −1.0 that almost became a wall distance
+Terminal : afternoon
+
+WHAT HAPPENED
+Day 143 afternoon, during the pipeline integration: a synthetic invalid reading (raw 0)
+injected into the front channel passed through the *audit's* prediction comparison as if
+it were a real 0 mm distance — the session mean was dragged toward zero by the phantom,
+and the audit's front channel briefly looked *cleaner* than it was.
+
+WHY IT HAPPENED
+The sentinel's contract was documented for the gate ('reject at the range pre-filter')
+but not for the audit ('exclude from the statistics'). Every consumer of the corrected
+readings had to honour the validity semantics; the audit — the newest consumer — had
+been written without the check, because the check's necessity was only visible after the
+sentinel existed. The version's own lesson (Error 1: the phase's audits were
+all-variance) was being paid forward: the new audit had a hole in its own input
+handling.
+
+FIX (took 2 days)
+The audit's residual loop checks the sentinel before every sample: −1.0 (or any raw ≤ 0
+marker) is excluded from the mean and the count. The injection test re-run: the session
+mean returned to its true value, the phantom gone. The sentinel's contract was then
+written once, in the pipeline's shared validation module, and every consumer — the gate,
+the audit, the crosstrack geometry, the UKF — reads the same validity check.
+
+---
+
+E0062 | v5.8 | SMALL | Found Day 144 | Fixed in 1 day | the ramp verification's second run
+File : tilt_compensate.py
+Error : the attitude source — the accelerometer-derived roll/pitch fights the vehicle's own acceleration
+Terminal : the ramp verification's second run
+
+WHAT HAPPENED
+Day 144, the ramp verification's second run: during the robot's *motion* on the ramp
+(the v5.2 drive-through, not the parked bench test), the compensated readings jittered
+±14 mm around the true distance — the correction was adding noise instead of removing
+it, and the session NEES ratio drifted to 1.35.
+
+WHY IT HAPPENED
+The attitude source is acceleration-contaminated. The bench test (Error 2's protocol)
+parked the robot — no acceleration, clean angle, correction verified. The drive-through
+exposed the contamination: the accelerometer's specific-force measurement confounds
+gravity with motion, and the tilt correction inherited the confound. This is the classic
+accelerometer-tilt limitation, and the phase had *documented* it in the v1.x IMU notes
+('tilt from accel is only valid at low acceleration') without the tilt *consumer*
+inheriting the documentation.
+
+FIX (took 1 day)
+Two-part. First, the correction's angle source: during motion, the attitude is low-pass
+filtered with a time constant that separates the vehicle's acceleration transients
+(sub-second, the throttle's timescale) from the real attitude (the ramp's seconds-long
+geometry) — the v5.6 per-channel time-constant lesson applied to the attitude. Second,
+the correction's *trust*: the correction's contribution at the ramp is bounded (the cos
+error is small at the operating angles), and the pipeline's verification records the
+motion-band jitter (the residual's motion-window variance) as a health signal — a rising
+motion-jitter is the pit crew's early warning that the attitude contamination has grown.
+The re-run: motion jitter down to ±4 mm (the sensor's own band), NEES back to 1.09.
+
+---
+
+E0063 | v5.8 | SMALL | Found Day 144 | Fixed in 1 day | the final regression
+File : tilt_compensate.py
+Error : the config's drift — a chassis change that was not a code change
+Terminal : the final regression
+
+WHAT HAPPENED
+Day 144, the final regression: the side channels' means had moved — left +2.7 mm, right
+−2.2 mm — just outside the ±2 mm band, after a session where nothing in the *code* had
+changed. The audit flagged it; the team initially blamed the sensor or the floor.
+
+WHY IT HAPPENED
+The transforms are config *because they are physical* — and physical things can change.
+The phase's 'measure it once, forever' was over-optimistic: it should have been 'measure
+it once, then verify forever', which is precisely the audit's role. The crash had
+invalidated the config, and the audit had caught the invalidation on the first session —
+the version's AC5 design (calibration-aware) proving itself in its first real incident.
+
+FIX (took 1 day)
+The mounts re-measured (the deformation confirmed), the mount repaired and re-bent to
+spec, the config updated with the incident's provenance note, and the audit re-run: left
++0.8 mm, right −0.6 mm — in band. The drop became the journal's canonical incident: the
+verification loop caught a physical change within one session, and the config's
+provenance note now records the repair.
+
+---
+
+E0064 | v5.8 | SMALL | Found Day 142 | Fixed in 3 days | the design review
+File : tilt_compensate.py
+Error : design rejected: Alternative A — Let the filter estimate the biases (augment the state with per-sensor bias states)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the statistically 'proper' answer to sensor biases is to estimate them online
+— add a bias state per channel to the UKF's state vector, with the biases drifting
+slowly (a random-walk Q). The case for: the filter would then *self-calibrate* on the
+track; the 5 cm offset would be estimated and removed continuously. The case against, in
+this system: (a) *observability* — a front-distance bias is not always distinguishable
+from a pose error; on straight, wide sections the two are nearly collinear, and the
+filter would need specific manoeuvres (wall passes at different offsets) to separate
+them — exactly the manoeuvres a race does not provide; (b) *identifiability* — three
+sensors, one pose: the biases and the pose share the residual's degrees of freedom, and
+the filter would trade a pose error for a bias error in whichever direction the noise
+pushed (the 'filter chases its own tail' failure, in bias form); (c) *the bench is
+cheaper than the track* — the transforms are tape-measure facts available in ten
+minutes, and a measured constant beats an estimated one every time. Effort: high.
+Robustness: 3/5. Verdict: rejected as the primary; the bias-state idea is recorded as a
+maintenance tool (drift detection after crashes) if the chassis ever becomes unstable.
+
+WHY IT HAPPENED
+Analysis: the statistically 'proper' answer to sensor biases is to estimate them online
+— add a bias state per channel to the UKF's state vector, with the biases drifting
+slowly (a random-walk Q). The case against, in this system: (a) *observability* — a
+front-distance bias is not always distinguishable from a pose error; on straight, wide
+sections the two are nearly collinear, and the filter would need specific manoeuvres
+(wall passes at different offsets) to separate them — exactly the manoeuvres a race does
+not provide; (b) *identifiability* — three sensors, one pose: the biases and the pose
+share the residual's degrees of freedom, and the filter would trade a pose error for a
+bias error in whichever direction the noise pushed (the 'filter chases its own tail'
+failure, in bias form); (c) *the bench is cheaper than the track* — the transforms are
+tape-measure facts available in ten minutes, and a measured constant beats an estimated
+one every time. Verdict: rejected as the primary; the bias-state idea is recorded as a
+maintenance tool (drift detection after crashes) if the chassis ever becomes unstable.
+
+FIX (took 3 days)
+replaced by Alternative B — The bench-measured transforms plus the track audit (chosen)
+
+---
+
+E0065 | v5.8 | SMALL | Found Day 142 | Fixed in 3 days | the design review
+File : tilt_compensate.py
+Error : design rejected: Alternative C — Auto-calibrate from session residuals (least-squares fit of the offsets to a clean log)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: run a clean session, collect the per-channel residuals, and fit the offsets
+that zero the means. The case for: no tape measure needed; the offsets are derived from
+the same data the audit uses. The case against: (a) *circularity* — the residuals' means
+are contaminated by the pose's own errors over the session (a small heading error
+produces a crosstrack bias that looks like a left-sensor offset), so the fit confounds
+pose error with sensor error; (b) *the bench is exact* — a tape measure has no such
+confound; (c) the fit's value is as a *check* (do the fitted offsets agree with the
+measured ones?) rather than as a source. Effort: medium. Robustness: 3/5. Verdict:
+rejected as the source, adopted as the audit's secondary check (the fitted offsets must
+agree with the measured ones within the fit's uncertainty — agreement is evidence,
+disagreement is an alarm).
+
+WHY IT HAPPENED
+Verdict: rejected as the source, adopted as the audit's secondary check (the fitted
+offsets must agree with the measured ones within the fit's uncertainty — agreement is
+evidence, disagreement is an alarm).
+
+FIX (took 3 days)
+replaced by Alternative B — The bench-measured transforms plus the track audit (chosen)
+
+---
+
+E0066 | v5.8 | SMALL | Found Day 142 | Fixed in 3 days | the design review
+File : tilt_compensate.py
+Error : design rejected: Alternative D — Ignore the tilt; treat the attitude as negligible
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the ramp (v5.2) pitches the robot 8-12°; at 600 mm that is ~9 mm of
+systematic, attitude-varying error — not negligible on a track measured in centimetres.
+The cosine error is *largest exactly when the robot is doing the interesting thing* (the
+ramp, the cambered floor), and it is invisible to the constant-offset audit (it varies
+with attitude), so ignoring it is not a simplification, it is a hole. Effort: trivial
+(one cosine). Robustness: 1/5 ignored. Verdict: rejected.
+
+WHY IT HAPPENED
+Verdict: rejected.
+
+FIX (took 3 days)
+replaced by Alternative B — The bench-measured transforms plus the track audit (chosen)
+
+---
+
+E0067 | v5.8 | SMALL | Found Day 142 | Fixed in 3 days | the design review
+File : tilt_compensate.py
+Error : design rejected: Alternative E — Verify by dead reckoning (compare the fused pose against the wheel-encoder path)
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: the robot has wheel encoders (v1.x work); comparing the fused pose against the
+encoder-integrated path is a classic cross-check. The case against, here: the encoders
+themselves drift (slip, the 4WS kinematics' blending), and the comparison would flag
+*both* systems' errors without saying which is which — the version's mission is
+sensor-vs-world verification, and the wall geometry is the better witness for the wall
+sensors. The encoder cross-check is recorded as a future maintenance tool (v7.x's
+control work will need it). Effort: medium. Robustness: 3/5. Verdict: rejected for this
+version.
+
+WHY IT HAPPENED
+The case against, here: the encoders themselves drift (slip, the 4WS kinematics'
+blending), and the comparison would flag *both* systems' errors without saying which is
+which — the version's mission is sensor-vs-world verification, and the wall geometry is
+the better witness for the wall sensors. Verdict: rejected for this version.
+
+FIX (took 3 days)
+replaced by Alternative B — The bench-measured transforms plus the track audit (chosen)
+
+---
+
+## v5.9 - POSE PIPELINE INTEGRATION (Day 145-147)
+
+TOTAL ERROR : 8
+SMALL : 7
+BIG : 1
+
+E0068 | v5.9 | BIG | Found Day 146 | Fixed in 2 days | the output layer's first integration
+File : layer5_localization.py
+Error : the crosstrack sign — the first day's outputs drove the wrong way
+Terminal : the output layer's first integration
+
+WHAT HAPPENED
+Day 146, the output layer's first integration: the crosstrack error was numerically
+right and directionally wrong — the robot, displaced 30 mm to the left of the lane's
+centre, produced a crosstrack of −30 mm... no: the raw values were (left 320, right
+280), the robot displaced toward the right wall, and the formula (left − right)/2 = +20
+reported 'left of centre'. The recorded truth said the robot was *right* of centre.
+Every subsequent control decision built on the sign would steer the wrong way.
+
+WHY IT HAPPENED
+A convention mismatch between the pipeline's contract and its consumers' expectations,
+introduced by rewriting the convention without a shared reference. The formula was
+derived correctly for its own stated convention; the convention itself had changed
+silently.
+
+INVESTIGATION (only for BIG errors)
+The channels were correct (the bench check: moving the robot left raised the left
+reading). The formula's *convention* was the issue: the phase's wall-following (v1.x)
+had defined 'positive crosstrack = toward the right wall', while the layer's docstring —
+written fresh on Day 145 — defined 'positive = left of centre'. Neither was wrong in
+itself; the *contract* was the bug: the control layer (v6.0's sketches) assumed the v1.x
+convention, and a sign flip at the interface is the quietest possible failure — the pose
+was correct, the geometry was correct, and every downstream action was inverted.
+
+FIX (took 2 days)
+The layer's convention was aligned to the control layer's: the code's comment now states
+the convention explicitly ('Positive = Left of center, Negative = Right' — the *shipped*
+comment, verified against the control sketches), the ground-truth verification (AC2)
+re-run with the sign checked first, and the interface test (inject a known offset,
+assert the sign) joined the regression suite.
+
+---
+
+E0069 | v5.9 | SMALL | Found Day 146 | Fixed in 2 days | the corner-section replay
+File : layer5_localization.py
+Error : the boundary jitter — the classifier flapping between sections at 349/351 mm
+Terminal : the corner-section replay
+
+WHAT HAPPENED
+Day 146, the corner-section replay: the track_section output flapped CORNER_APPROACH ↔
+CORNER_IN_TURN at ~4 Hz through a 40-second stretch where the front reading hovered at
+350 ± 8 mm — the sensor's noise band straddling the threshold. The control layer's
+sketches (the speed profile per section) would have been scheduling on a signal changing
+four times a second.
+
+WHY IT HAPPENED
+The thresholds were derived from the *mean* behaviour of the corner logs (the front
+distance's typical value inside the turn vs on approach) without considering the
+*spread* — a threshold at the distribution's centre is a threshold that splits the
+distribution, and the classifier's output became the sensor's coin. The phase's own
+noise measurements (v5.5: front σ ≈ 4.4 mm) made the failure predictable: 3σ ≈ 13 mm of
+straddle.
+
+FIX (took 2 days)
+Hysteresis (R4): the classifier holds its state and transitions only with a 30 mm margin
+— entering CORNER_IN_TURN requires front < 320, leaving requires front > 380; the same
+for the approach boundary. The flap vanished (the 40-second stretch classified once, not
+160 times), the section map's transitions shifted by ≤ 30 mm (inside the AC2 boundary
+tolerance), and the control layer gained a scheduleable decision.
+
+---
+
+E0070 | v5.9 | SMALL | Found Day 146 | Fixed in 2 days | afternoon
+File : layer5_localization.py
+Error : the held-reading illusion — the sample-and-hold that looked like 100 Hz
+Terminal : afternoon
+
+WHAT HAPPENED
+Day 146 afternoon, the first 100 Hz test of the *restructured* pipeline: the loop ticked
+at 100 Hz, the predict ran every cycle, the corrections applied on arrival — and the
+NEES audit immediately flagged inconsistency: the ratio drifted to 0.6 (overconfident)
+within the first minute. The pipeline's rate was right and its beliefs were wrong.
+
+WHY IT HAPPENED
+The event-loop's structure had a single 'correction' path that ran on every cycle, and
+the intermediate version fed it the latest held values when no fresh data had arrived.
+The rate of *belief* (100 Hz) and the rate of *information* (20 Hz) had been conflated
+by the loop's shape — a structural version of the covariance-ledger rule (R2) violated:
+the filter was told information had arrived when it had not.
+
+FIX (took 2 days)
+The correction path gated on *freshness*: a correction only runs in the cycle a genuine
+sample arrives (the data-arrival event), never on a held value; the predict runs every
+cycle regardless. The NEES ratio returned to 1.06, and the innovation-count diagnostic
+(expected vs actual per second) joined the audit as a standing check.
+
+---
+
+E0071 | v5.9 | SMALL | Found Day 147 | Fixed in 1 day | the live-channel integration test
+File : layer5_localization.py
+Error : sensor_data.get("left_mm", 300.0)
+Terminal : the live-channel integration test
+
+WHAT HAPPENED
+Day 147, the live-channel integration test: a synthetic *missing* left channel (the
+sensor's data absent from the packet) produced a crosstrack of +10 mm — a perfectly
+plausible-looking, completely wrong value. The robot was actually displaced 25 mm right
+of centre; the pipeline reported 10 mm left. The control layer would have corrected the
+wrong way.
+
+WHY IT HAPPENED
+The interface defaults were written for convenience (a safe value if the key is absent)
+without honouring the phase's honesty rule: a missing channel is *absent data*, and the
+only honest representation of absent data is a marked absence. The v5.8 sentinel had
+established the principle for the filter path; the output layer's interface had silently
+exempted itself.
+
+FIX (took 1 day)
+The live-channel contract (R5): the integration stage marks each channel's validity, the
+output layer's geometry consumes only live channels, and the output carries the live
+set. The crosstrack with a missing left channel now reports the right-channel-only
+geometry *and* the absence — the control layer knows the crosstrack's provenance. The
+defaults remain in the code as the documented interface fallback, with the comment
+warning that they are only reached under the integration stage's guarantee (Error 4's
+journal entry is the warning's proof).
+
+---
+
+E0072 | v5.9 | SMALL | Found Day 145 | Fixed in 3 days | evening
+File : layer5_localization.py
+Error : the velocity staleness — the 20 Hz loop's quietest cost
+Terminal : evening
+
+WHAT HAPPENED
+Day 145 evening, while the synchronous 20 Hz loop was still alive, the phase ran its own
+future test: the v6.0 speed-PID sketch, fed the pipeline's velocity state at the
+pipeline's 20 Hz, against the 100 Hz tick. The sketch's response to a commanded speed
+step showed a 50 ms lag in the feedback term — the loop's error signal, updated at 20
+Hz, was stale by up to one full VL53 round. The lag was invisible in the pose (the
+filter's pose was fine) and fatal in the control (the speed controller's phase margin
+was gone).
+
+WHY IT HAPPENED
+The seed's error, stated precisely: the full pipeline's rate (20 Hz, VL53-bound) capped
+the *feedback* rate of every downstream consumer. The velocity state's freshness is a
+property of the pipeline's architecture, not of the filter — and the synchronous loop's
+single rate had capped it. The split-rate restructure (predict at 100 Hz, correcting the
+velocity's freshness through the IMU path at 100 Hz) was the architectural fix.
+
+FIX (took 3 days)
+The split-rate pipeline (Alternative B) — predict every cycle, IMU corrections at 100
+Hz, VL53 corrections on arrival. The velocity state now updates at the IMU's 100 Hz
+cadence (the accel channel's direct observation) with the wall corrections at their own
+rate; the sketch's feedback lag dropped to one cycle (10 ms), and the phase-margin test
+passed.
+
+---
+
+E0073 | v5.9 | SMALL | Found Day 145 | Fixed in 3 days | the design review
+File : layer5_localization.py
+Error : design rejected: Alternative C — Fuse everything in one thread at 100 Hz by sample-and-holding the VL53s
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: read the VL53s at their true rate, hold the latest value, and run
+predict-and-correct at 100 Hz on the held values. The case against: the hold injects
+correlation the covariance cannot represent — a 50 ms-old reading applied as fresh 100
+Hz data makes the filter believe it has five times the information it actually has (the
+effective innovation count inflates, the covariance shrinks too far, and the filter
+becomes overconfident — the exact failure the phase's NEES audit exists to catch). The
+held-value approach *looks* like 100 Hz and *is* 20 Hz wearing a costume. Effort: low.
+Robustness: 3/5 (fails the audit). Verdict: rejected.
+
+WHY IT HAPPENED
+The case against: the hold injects correlation the covariance cannot represent — a 50
+ms-old reading applied as fresh 100 Hz data makes the filter believe it has five times
+the information it actually has (the effective innovation count inflates, the covariance
+shrinks too far, and the filter becomes overconfident — the exact failure the phase's
+NEES audit exists to catch). Robustness: 3/5 (fails the audit). Verdict: rejected.
+
+FIX (took 3 days)
+replaced by Alternative B — The split-rate pipeline (chosen)
+
+---
+
+E0074 | v5.9 | SMALL | Found Day 145 | Fixed in 3 days | the design review
+File : layer5_localization.py
+Error : design rejected: Alternative D — The layer derives its own heading from the sensors
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: compute heading inside LocalizationLayer from the gyro integral or the
+crosstrack's derivative. The case against: two headings (the filter's and the layer's)
+would disagree under exactly the conditions that matter (the turn, the ramp), and the
+control layer would have to choose — the 'one authoritative pose' requirement is
+violated by construction. The pass-through (the heading contract) is the decision to
+have one heading, owned by the filter. Effort: medium. Robustness: 2/5. Verdict:
+rejected.
+
+WHY IT HAPPENED
+Verdict: rejected.
+
+FIX (took 3 days)
+replaced by Alternative B — The split-rate pipeline (chosen)
+
+---
+
+E0075 | v5.9 | SMALL | Found Day 145 | Fixed in 3 days | the design review
+File : layer5_localization.py
+Error : design rejected: Alternative E — Compute the section from the map instead of the front sensor
+Terminal : the design review
+
+WHAT HAPPENED
+Analysis: if the track map were known, the section could be read from the pose directly
+(a map lookup: 'am I within 350 mm of the corner's inner wall?'). The case against: the
+venue's map is *not* known — the whole phase's wall-based philosophy exists because the
+track is measured live, not assumed. A map-based classifier would inherit every map
+error, while the sensor-based classifier inherits only the sensor's honesty. Effort:
+high (the map is a project). Robustness: 3/5. Verdict: rejected; the sensor-based
+classifier stands, and the map idea is recorded for the advanced planning work (v8.x's
+territory).
+
+WHY IT HAPPENED
+Verdict: rejected; the sensor-based classifier stands, and the map idea is recorded for
+the advanced planning work (v8.x's territory).
+
+FIX (took 3 days)
+replaced by Alternative B — The split-rate pipeline (chosen)
+
+---
