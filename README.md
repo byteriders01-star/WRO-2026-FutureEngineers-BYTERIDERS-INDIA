@@ -4,7 +4,7 @@
 # Team **BYTE RIDERS**
 
 **World Robot Olympiad 2026 · Future Engineers Category**
-**CHARUSAT — Charotar University of Science and Technology, India**
+
 
 [![WRO](https://img.shields.io/badge/WRO-2026-blue)](https://wroindia.org)
 [![Category](https://img.shields.io/badge/Category-Future%20Engineers-orange)]()
