@@ -1,270 +1,161 @@
-# WRO 4WS Robot — Known Issues (phases/)
+# WRO 2026 - ERROR CATALOG
 
-The complete engineering journal of every bug, error, and unexpected
-behaviour encountered during the 90-version development of the WRO 2026
-4WS robot (v1.0 → v9.9), from the first boot to the final race pipeline.
+The phase-by-phase catalog of every error this build hit, with what happened,
+why it happened, the investigation (for the big ones), and the fix.
 
-> This folder **is** the issues documentation. All 1080 errors live here,
-> split into 9 phase files — one per development phase (v1.x → v9.x).
-> There is nothing else in the issues folder.
+**Every entry is real.** The catalog is generated from the CHANGE.md history
+chapters in `other/history/vX.Y/CHANGE.md` (section 9 of each chapter, "Errors,
+failures, and root-cause analysis", and section 5.3, "Alternatives considered",
+for the rejected designs) plus the engineering documentation
+(`ENGINEERING_DOCUMENTATION.md`, `ENGINEERING_PARAMETER_JUSTIFICATION.md`).
+Nothing was invented to fill a quota; the numbers below are the actual counts
+of the documented errors.
 
----
+## The nine phases
 
-## Why this folder exists
+| File | Phase | Versions | Errors | E-range | BIG | SMALL |
+|------|-------|----------|--------|---------|-----|-------|
+| `v1-boot-and-ssh.txt` | BOOT AND SSH | v1.0 - v1.9 | 53 | E0001 - E0053 | 11 | 42 |
+| `v2-drive-and-motor.txt` | DRIVE AND MOTOR | v2.0 - v2.9 | 64 | E0001 - E0064 | 11 | 53 |
+| `v3-imu-sensors.txt` | IMU AND SENSORS | v3.0 - v3.9 | 63 | E0001 - E0063 | 12 | 51 |
+| `v4-perception.txt` | PERCEPTION | v4.0 - v4.9 | 72 | E0001 - E0072 | 10 | 62 |
+| `v5-localization.txt` | LOCALIZATION | v5.0 - v5.9 | 75 | E0001 - E0075 | 10 | 65 |
+| `v6-control.txt` | CONTROL | v6.0 - v6.9 | 81 | E0001 - E0081 | 11 | 70 |
+| `v7-mission.txt` | MISSION | v7.0 - v7.9 | 81 | E0001 - E0081 | 10 | 71 |
+| `v8-integration.txt` | INTEGRATION | v8.0 - v8.9 | 76 | E0001 - E0076 | 11 | 65 |
+| `v9-final-pipeline.txt` | FINAL PIPELINE | v9.0 - v9.9 | 50 | E0001 - E0050 | 12 | 38 |
 
-Every error in this repo was **real**, was **seen in a terminal**, and
-took **measured days** to fix. This folder exists so that:
-
-1. Any error that appears on competition day has already been seen and
-   documented — with the root cause and the fix.
-2. The development history (90 versions) is verifiable against the
-   failures that actually happened during it.
-3. A new teammate can learn *why* the robot behaves the way it does,
-   not just what to do.
-
-```mermaid
-flowchart LR
-    A[90 versions<br/>v1.0 - v9.9] --> B[Development mornings<br/>180 days]
-    B --> C[1080 errors logged]
-    C --> D{SMALL or BIG?}
-    D -->|SMALL<br/>1 day| E[Fixed same day]
-    D -->|BIG<br/>2-5 days| F[Investigation steps<br/>before the fix]
-    E --> G[9 phase files]
-    F --> G
-```
-
----
-
-## Folder structure
-
-| Rank | File | Contents |
-|------|------|----------|
-| 1 | `README.md` | This index — diagrams, guides, stats |
-| 2 | `v1-boot-and-ssh.txt` | v1.x — boot & basics + SSH errors (120 errors) |
-| 3 | `v2-drive-and-motor.txt` | v2.x — drive & motor control (120) |
-| 4 | `v3-imu-sensors.txt` | v3.x — IMU / sensor subsystem (120) |
-| 5 | `v4-perception.txt` | v4.x — perception & vision (120) |
-| 6 | `v5-localization.txt` | v5.x — localization & fusion (120) |
-| 7 | `v6-control.txt` | v6.x — control loop & planning (120) |
-| 8 | `v7-mission.txt` | v7.x — mission / state machine (120) |
-| 9 | `v8-integration.txt` | v8.x — integration & system (120) |
-| 10 | `v9-final-pipeline.txt` | v9.x — final pipeline, the big ones (120) |
-
-```mermaid
-graph TD
-    subgraph phases[phases/]
-        R[README.md]
-        V1[v1-boot-and-ssh.txt]
-        V2[v2-drive-and-motor.txt]
-        V3[v3-imu-sensors.txt]
-        V4[v4-perception.txt]
-        V5[v5-localization.txt]
-        V6[v6-control.txt]
-        V7[v7-mission.txt]
-        V8[v8-integration.txt]
-        V9[v9-final-pipeline.txt]
-    end
-    E[history/ v1.0-v9.9] -->|source of truth| V1
-    E --> V2
-    E --> V3
-    E --> V4
-    E --> V5
-    E --> V6
-    E --> V7
-    E --> V8
-    E --> V9
-    R -->|index + diagrams| V1
-    R --> V2
-    R --> V3
-    R --> V4
-    R --> V5
-    R --> V6
-    R --> V7
-    R --> V8
-    R --> V9
-```
-
----
-
-## Anatomy of one error entry
-
-Every entry follows the same structure, so any error can be read in 30
-seconds:
-
-```text
-----------------------------------------------------------------------
-E0009 | v9.0 | BIG | Found Day 162 | Fixed in 2 days | Pi SSH terminal
-----------------------------------------------------------------------
-File      : history/v9.0/esp_main.c
-Error     : Full pipeline crashes 2 seconds after the start
-Terminal  : Pi SSH terminal
-  $ python3 main.py
-  TypeError: 'Task' object is not callable        <- exact output
-WHAT HAPPENED
-  <the incident as it happened>
-WHY IT HAPPENED (root cause)
-  <the deep technical reason - the "why factor">
-INVESTIGATION (before the fix)                    <- BIG errors only
-  - <step 1 tried>
-  - <step 2 tried>
-  - <step 3 that found it>
-FIX (took 2 days)
-  <the solution>
-```
-
-| Field | Meaning |
-|-------|---------|
-| `E0001 … E0120` per phase | Unique error ID, sequential within the phase |
-| `vX.Y` | The version phase where it happened |
-| `SMALL / BIG` | SMALL = 1 line of code, fixed same day; BIG = 2–5 days |
-| `Found Day N` | Development-day counter (180 days total, **no dates**) |
-| `Fixed in X day(s)` | How many days it took to fix |
-| `Terminal` | Where it showed: Pi SSH, ESP32 serial monitor, CMD, etc. |
-| `WHAT HAPPENED` | The incident |
-| `WHY IT HAPPENED` | Root cause — the deep research |
-| `INVESTIGATION` | The steps tried before the fix (BIG only) |
-| `FIX` | The solution |
-
----
-
-## The error lifecycle
-
-How an error travelled from "morning surprise" to a catalog entry:
-
-```mermaid
-flowchart TD
-    S[Morning: robot test starts] --> A[Error appears in terminal]
-    A --> B{Recognized?}
-    B -->|Yes - catalog match| C[Find the entry E-number]
-    B -->|No - new error| D[Read the output]
-    D --> E{How bad?}
-    E -->|One line of code| F[SMALL - fix same day]
-    E -->|Deep debugging| G[BIG - investigate]
-    G --> H[Collect 3 investigation steps]
-    H --> I[Find root cause - WHY]
-    F --> J[Fix + verify on robot]
-    I --> J
-    J --> K[Log into template data]
-    K --> L[Regenerate phase files]
-    C --> M[Apply the documented fix]
-    L --> M
-    M --> N[Competition day: debug in minutes]
-```
-
----
-
-## Competition-day quick decision guide
-
-The catalog's real purpose. When something fails at the venue:
-
-```mermaid
-flowchart TD
-    Q[Something broke] --> R{What type?}
-    R -->|Pi / SSH / boot| T[Open v1-boot-and-ssh.txt]
-    R -->|Drive / motor| U[Open v2-drive-and-motor.txt]
-    R -->|IMU / sensors| S[Open v3-imu-sensors.txt]
-    R -->|Vision / pillars| V[Open v4-perception.txt]
-    R -->|Position / heading| W[Open v5-localization.txt]
-    R -->|Steering / planning| X1[Open v6-control.txt]
-    R -->|Mission / laps| Y1[Open v7-mission.txt]
-    R -->|System / scheduler| Z1[Open v8-integration.txt]
-    R -->|Race day / final| Z2[Open v9-final-pipeline.txt]
-    T --> X{Found entry?}
-    S --> X
-    U --> X
-    V --> X
-    W --> X
-    X1 --> X
-    Y1 --> X
-    Z1 --> X
-    Z2 --> X
-    X -->|Yes| Y[Read WHAT + WHY + FIX -<br/>apply the documented fix]
-    X -->|No - never seen| Z[Log it as a new entry<br/>after the round]
-```
-
----
-
-## Phases overview
-
-| Phase | File | Theme | Typical errors |
-|-------|------|-------|----------------|
-| v1.x | `v1-boot-and-ssh.txt` | Boot & basics + SSH | Import failures, SSH refused, kernel panic, SD full |
-| v2.x | `v2-drive-and-motor.txt` | Drive & motor control | PWM overflow, brownout, encoder dead, odometry drift |
-| v3.x | `v3-imu-sensors.txt` | IMU / sensors | WHO_AM_I mismatch, ToF frozen, mag saturation |
-| v4.x | `v4-perception.txt` | Perception & vision | False pillars, HSV drift, lane flip, VO scale |
-| v5.x | `v5-localization.txt` | Localization & fusion | Singular matrix, NaN covariance, UKF divergence |
-| v6.x | `v6-control.txt` | Control & planning | Windup, oscillation, infeasible MPC |
-| v7.x | `v7-mission.txt` | Mission / state machine | Stuck states, double lap counts, early starts |
-| v8.x | `v8-integration.txt` | Integration & system | Scheduler deadlock, OOM, heartbeat failsafe |
-| v9.x | `v9-final-pipeline.txt` | Final pipeline (big) | Pipeline crash, watchdog loop, SD corruption |
-
-```mermaid
-timeline
-    title Development days (180 total, counter only)
-    v1.x : Day 1-20 : Boot, basics, first SSH fights
-    v2.x : Day 21-40 : Motors, Ackermann, first drive
-    v3.x : Day 41-60 : IMU, ToF, sensor fusion starts
-    v4.x : Day 61-80 : Vision, pillars, corners
-    v5.x : Day 81-100 : EKF/UKF, localization
-    v6.x : Day 101-120 : Control loops, planning
-    v7.x : Day 121-140 : State machine, mission logic
-    v8.x : Day 141-160 : Integration, health, scheduling
-    v9.x : Day 161-180 : Final pipeline, race readiness
-```
-
----
-
-## Statistics
+## Totals
 
 | Metric | Value |
 |--------|-------|
-| Total errors | **1080** (720 SMALL / 360 BIG) |
-| Development days | **180** (day counter, no dates) |
-| Versions covered | **90** (v1.0 → v9.9) |
-| Phases | **9** (v1.x → v9.x) |
-| Errors per version | 12 (8 SMALL + 4 BIG) |
-| Errors per phase file | 120 |
-| Big errors with investigation | 360 (all) |
+| Errors documented across all versions | **615** |
+| BIG errors (needed an investigation) | 98 |
+| SMALL errors (one-line fixes) | 517 |
+| Chapters parsed | 90 (v1.0 - v9.9) |
+| Source | `other/history/vX.Y/CHANGE.md` sections 9 and 5.3, plus the engineering documentation |
 
-The distribution shows the pattern of the whole project: most bugs were
-small and fixed the same day; the 360 big ones — the ones that cost
-2–5 days each — are the ones worth studying before the competition.
+## Entry anatomy
 
----
-
-## Documented top-10 hardest bugs
-
-The BIG errors that cost the most days — read these before race day:
-
-| Error | Found | Fixed | Root cause in one line |
-|-------|-------|-------|------------------------|
-| Kernel panic VFS mount fail | v1.x | 4 days | SD corruption after power cut |
-| Brownout reboot loop | v2.x | 4 days | Battery sag below 2.8V at motor start |
-| UKF diverges off track | v5.x | 5 days | Unbounded adaptive noise growth |
-| Scheduler deadlock on exception | v8.x | 4 days | No exception boundary in the loop |
-| OOM killer kills perception | v8.x | 3 days | Unbounded frame queue |
-| ESP32 watchdog reset at 89s | v9.x | 3 days | Blocking UART write starved watchdog |
-| SD corrupt on race day | v9.x | 5 days | ext4 journal lost on power cut |
-| UART echo storm between boards | v9.x | 2 days | RX/TX swapped + no checksum |
-| False pillar on scoreboard | v9.x | 3 days | Scoreboard passes every color gate |
-| Camera frozen 40s on race morning | v9.x | 3 days | Blocking read, no timeout |
-
----
-
-## Regenerating the catalog
-
-The catalog is **generated, not hand-written**, so it stays consistent.
-The template data holds every error's WHAT/WHY/INVESTIGATION/FIX.
+Every entry in the phase files looks like this (E0001 of phase 1, real):
 
 ```
-python scripts/generate_error_catalog.py
+E0001 | v1.0 | BIG | Found Day 2 | Fixed in 1 day | after creating the repo structure
+File : skeleton_main.py
+Error : ModuleNotFoundError: No module named 'layers'
+Terminal : after creating the repo structure
+
+WHAT HAPPENED
+On Day 2, after creating the repo structure, we launched the
+entry script through our launcher — a shell wrapper that
+`cd`'d to the robot home directory and invoked the Python
+module by `-m` form. The interpreter aborted before printing
+anything: `ModuleNotFoundError: No module named 'layers'`,
+with the traceback pointing at the `import layers` line in
+our working-tree main.py. The crash was total and immediate:
+exit code 1, zero output. The same file, run as `python3
+main.py` from inside the project root, worked fine. That
+split behavior — works from one directory, dies from another
+— was the most important clue we almost missed.
+
+WHY IT HAPPENED
+Python resolves imports by walking `sys.path` in order:
+`sys.path[0]` first, then `PYTHONPATH` entries, then the
+standard library, then site-packages. The crucial detail is
+what occupies `sys.path[0]`, and it is decided by *how the
+interpreter was launched*, not by where the code lives. When
+a script is run directly (`python3 file.py`), Python inserts
+the directory containing the script — the project root, in
+our case — as `sys.path[0]`. When a module is run with `-m`,
+Python inserts the *current working directory*. When a file
+is imported rather than run, the top-level script's
+directory rules and the imported module is found relative to
+the importing script. Our launcher used the `-m` form from a
+home directory, so `sys.path[0]` was the home directory; the
+project root — and therefore the `layers/` package nested
+under it — was simply not on the search path at all. The
+interpreter reported "no module named layers" with perfect
+accuracy: there was no such module *on its path*. The
+mechanism is subtle because it is silent in the happy case:
+from the project root both invocation styles happen to work,
+which is exactly why the bug survived until the launcher
+came along. Two mechanical details of the root cause are
+worth pinning down because they generalize to every Python
+tool this team will write. First, the empty string: when
+Python is launched with `-c` or interactively, `sys.path[0]`
+is the empty string, which the interpreter resolves to "the
+current working directory" at the moment each import is
+looked up — meaning even interactive sessions are
+cwd-sensitive, and our early guess that the environment was
+the problem was backwards in the interesting direction: the
+environment was not missing something, the *launch* was
+supplying the wrong something. Second, the
+relative-`__file__` caveat: under `python3 -m module`,
+`__file__` can arrive as a relative path, so
+`os.path.dirname(__file__)` resolves against the process cwd
+at run time rather than being handed an absolute path. In
+our layout it still resolved to the project root, which is
+why the append worked on every tested launch path — but the
+transferable lesson is that a path anchored on `__file__` is
+only as absolute as the interpreter's invocation, and entry
+scripts that may be launched under `-m` should harden the
+anchor with `os.path.abspath` as insurance. We kept the
+committed one-liner exactly as written because every launch
+style we could produce in the lab resolved to a correct
+absolute anchor, and we logged the abspath hardening as a
+low-cost review item for the first real launcher in v2.
+
+INVESTIGATION (only for BIG errors)
+We stopped guessing and started measuring the search path
+itself. The decisive experiment: run `python3 -c "import
+sys; print(sys.path)"` and compare `sys.path[0]` under four
+invocation styles. Under ...
+
+FIX (took N days)
+The exact change, committed as line 2 of `skeleton_main.py`:
+`sys.path.append(os.path.dirname(__file__))`, placed after
+the stdlib imports and before any project import. Why this
+is correct: `__file__...
 ```
 
-| File | Role |
-|------|------|
-| `scripts/error_catalog_data.py` | Template data — themes 1–5 (v1–v5) |
-| `scripts/error_catalog_data2.py` | Template data — themes 6–9 (v6–v9) |
-| `scripts/generate_error_catalog.py` | Generator — rendering, day counters, phase files |
+Field mapping (all from the real chapter text):
 
-The generator writes all 9 files in this folder in one pass. Adding a
-new error = add one template tuple, regenerate, done.
+| Catalog field | Source in the chapter |
+|---------------|-----------------------|
+| `Found Day N` | the `Day N` mention in the error's Symptom |
+| `File` | the code file(s) named in the error's text; else the version's snapshot files |
+| `Error` | the first error text quoted in the error's text |
+| `Terminal` | where the error was observed, from the Symptom text |
+| `WHAT HAPPENED` | the chapter's `**Symptom.**` paragraph |
+| `WHY IT HAPPENED` | the chapter's `**Root cause.**` paragraph |
+| `INVESTIGATION` | the chapter's `**Investigation.**` paragraph (BIG entries only) |
+| `FIX` | the chapter's `**Fix.**` paragraph |
+| `SMALL` vs `BIG` | BIG = the version's flagged/primary/headline errors; SMALL = the rest |
+
+## How it was built
+
+1. `python issues/scripts/error_catalog_data.py` - reads the 90 chapters and
+   extracts every error block (heading, day, symptom, hypotheses, investigation,
+   root cause, fix, prevention), the rejected designs of section 5.3, and the
+   documented errors of the engineering documentation, into
+   `issues/scripts/error_catalog.json`.
+2. `python issues/scripts/error_catalog_generator.py` - writes the nine phase
+   files and this README from that JSON.
+3. `python issues/scripts/error_catalog_reader.py` - read-only helpers to query
+   the catalog (totals, per-version summaries, keyword search).
+
+## Honest gaps
+
+- Every chapter yields at least one entry, but the extraction strength varies
+  with the chapter's own format. Chapters that labeled every section
+  (`**Symptom.**`, `**Root cause.**`, ...) yield fully split entries;
+  chapters written as prose or with combined labels (v2.1, v3.1, v4.4) yield
+  entries whose WHY/FIX text carries the chapter's wording as-is.
+- "Fixed in N days" is derived from the version's recorded day span, not from
+  a per-error fix log (the chapters do not log fix timestamps).
+- 11 chapters carry no version title (v1.3, v1.5, v2.1, v2.8, v2.9, v3.0, v3.3, v3.6, v3.8, v4.1, v4.4); those files show the version number in the heading.
+- The engineering-documentation entries sit under "## THE ENGINEERING
+  DOCUMENTATION" at the end of each phase file. The docs do not log days, so
+  those entries show "Found Day n/a | Fixed in n/a" and FIX without a day count.
+- Each phase file targets 230 real errors where the source material allows;
+  the per-file totals above are the actual counts of what the sources document.
