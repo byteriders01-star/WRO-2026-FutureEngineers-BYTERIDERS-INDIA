@@ -530,7 +530,7 @@ graph TD
 | Open Challenge | — |
 | Obstacle Challenge | — |
 
-Full details and links live in [`video/video.md`](video/video.md).
+Full details and links live in [`video/video.md`](https://youtu.be/L5KGnchQRr0?si=QbbOCd11ulyS-JgA).
 
 ---
 
