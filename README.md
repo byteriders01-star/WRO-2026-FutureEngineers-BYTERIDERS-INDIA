@@ -43,7 +43,7 @@
 ## 1. Team Introduction
 
 **Team Name:** Byte Riders
-**Institution:** CHARUSAT — Charotar University of Science and Technology
+
 **Competition:** World Robot Olympiad 2026, Future Engineers Category
 
 Byte Riders is a two-member engineering team built around a clean split between mechanical and software ownership, developing a fully autonomous, self-driving vehicle for the WRO Future Engineers category. The team's approach centers on a 4-wheel-steering mechanical platform paired with a dual-controller electronics stack — a Raspberry Pi 4B for high-level perception and decision-making, and a dedicated ESP32-S3 for deterministic, real-time actuation — so that vision processing never compromises steering or motor response time.
@@ -54,7 +54,7 @@ Byte Riders is a two-member engineering team built around a clean split between 
 |---|---|---|---|
 | <!-- photo --> | **Shrut Barasara** | Mechanical & Hardware Lead | Chassis design, 4-wheel steering geometry, sensor mounting, wiring, power distribution |
 | <!-- photo --> | **Happy Patel** | Software & Version Control Engineer | Embedded firmware (ESP32-S3), vision pipeline (OpenCV), Git/GitHub workflow, repository management |
-| <!-- photo --> | **TBD** | Coach | — |
+| <!-- photo --> | **Brijesh Kundariya** | Coach | — |
 
 <!-- Add team photo here — see Section 10 for the full photo checklist -->
 
