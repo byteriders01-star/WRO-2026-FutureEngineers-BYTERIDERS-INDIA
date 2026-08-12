@@ -338,7 +338,7 @@ Full details and links live in [`video/video.md`](video/video.md).
 
 <div align="center">
 
-**Built by Team Byte Riders 🚗⚡ — CHARUSAT**
+
 *WRO 2026 Future Engineers*
 
 </div>
