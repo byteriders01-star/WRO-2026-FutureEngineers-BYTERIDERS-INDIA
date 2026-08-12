@@ -1,0 +1,2024 @@
+PHASE 2 - DRIVE AND MOTOR - ERROR CATALOG
+
+ERROR TOTAL : 64
+SMALL : 53
+BIG : 11
+TOTAL ERROR : 615
+PERCENTAGE : 10.41%
+
+------------------------------------------------------------
+HOW TO READ THIS FILE
+1. Every error is real. It was parsed from the CHANGE.md history chapter of
+   the version that hit it (other/history/vX.Y/CHANGE.md, section 9). Nothing
+   here was invented to fill a quota.
+2. Errors are grouped by version, in the order the versions happened.
+3. E-numbers restart at E0001 for each phase file.
+4. SMALL errors are one-line fixes; BIG errors needed an investigation.
+5. 'Found Day N' is the day the error was first observed, as recorded in the
+   chapter. 'Fixed in N days' is the time between that day and the last
+   recorded day of the version.
+6. The FIX section is the fix exactly as the chapter documented it.
+------------------------------------------------------------
+ANATOMY OF ONE ERROR ENTRY
+
+E0001 | v2.0 | SMALL or BIG | Found Day N | Fixed in N days | Terminal
+File : the file or files involved, as named in the chapter
+Error : the error text, quoted from the chapter
+Terminal : where the error was observed, from the chapter
+
+WHAT HAPPENED
+What we saw - the symptom, from the chapter's Symptom section.
+
+WHY IT HAPPENED
+The root cause, from the chapter's Root cause section.
+
+INVESTIGATION (only for BIG errors)
+How we found it - the chapter's Investigation section.
+
+FIX (took N days)
+The fix, from the chapter's Fix section.
+
+------------------------------------------------------------
+THE ERROR CATALOG
+
+## v2.0 - FORWARD DRIVE COMMAND (Day 28-30)
+
+TOTAL ERROR : 3
+SMALL : 2
+BIG : 1
+
+E0001 | v2.0 | BIG | Found Day 29 | Fixed in 2 days | SSH
+File : drive_forward.py
+Error : drive_forward.py
+Terminal : SSH
+
+WHAT HAPPENED
+The very first integrated motion test. We ran the robot with a *step* command (raw =
+1000 in a single packet — Alternative A, deliberately, as the characterisation
+experiment promised in Section 6). Within roughly 300 ms of commanding full speed, the
+Pi's serial session died: the SSH/console window froze, the LED UI on GPIO 5/6/13/19/26
+flickered out, the robot coasted to a stop, and the Pi came back up a few seconds later
+with a fresh boot banner. Classic reboot. The robot had moved about 20 cm and then died
+mid-stride. Our first motion was a corpse.
+
+WHY IT HAPPENED
+A shared, under-rated 5 V rail and a full-voltage step at t = 0. Mechanistically: at t =
+0 the rotor is stationary so back-EMF = 0 and the motor demands I = V/R ≈ 5.0 / 1.8–2.5
+Ω ≈ 2–2.8 A; the buck's output capacitor supplies the first milliseconds then the
+current limiter clamps, the rail sags toward ~4.2 V, and the Pi's PMIC sees a sustained
+under-voltage and resets the board. The mechanism is not "the motor broke the Pi"; it is
+"the motor took its current at the worst possible instant, from a rail that was never
+sized for it." The step command made the worst possible instant mandatory; a ramp would
+have postponed it past the back-EMF build-up.
+
+INVESTIGATION (only for BIG errors)
+We isolated variables one at a time, the only way to get an honest answer with three
+consumers on one rail: - *Motor alone from the bench supply:* full-speed step, no reset
+(obviously — different energy universe). - *Motor from the robot's buck rail, servo and
+Pi disconnected:* full step held, Pi absent so no reset to observe; rail dipped but
+recovered. - *Full robot, step command, servo mechanically disconnected:* **Pi still
+reset.** This killed hypothesis 3 (servo) and hypothesis 5 (ESP32) — the motor inrush
+alone was sufficient. - *Instrumentation:* we put a 3 A-rated DMM in series with the
+motor and a second DMM across the 5 V rail at the Pi's GPIO header. At the step, the
+rail fell from 5.08 V to roughly 4.1–4.3 V and the current spiked past the 3 A range
+mark (estimated ~5–6 A total system draw including the Pi and servo quiescent). A Pi 4B
+declares under-voltage below ~4.63 V; we were a full half-volt under it. - *Re-read the
+datasheet truth:* the TB6612FNG logic runs fine at 5 V, but the *motor* supply on our
+wiring was fed from the *same* 5 V buck that fed the Pi and the servo. The buck was
+rated ~3 A. The C4 arithmetic said 2.8 A (motor inrush) + 1.5 A (servo) + 1.2 A (Pi) ≈
+5.5 A against 3 A — and the DMM confirmed the mechanism live.
+
+FIX (took 2 days)
+Two changes, one in software and one in discipline. Software: replace the step with the
+11-step ramp (this is the exact code in `drive_forward.py`, lines 7–8), bounding inrush
+to d·V/R per plateau per the C3 argument. Hardware discipline: schedule the
+power-topology rewire (separate regulator for the servo, motor fed from the pack side,
+Pi on its own buck) and record that as debt — we did *not* rewire in v2.0 because mixing
+the ramp change and the rewire in one test would have made it impossible to attribute
+the win.
+
+---
+
+E0002 | v2.0 | SMALL | Found Day 30 | Fixed in 1 day | the ramp fix
+File : drive_forward.py
+Error : The verification-undershoot scare (Day 30)
+Terminal : the ramp fix
+
+WHAT HAPPENED
+After the ramp fix, the robot drove its full 2.55 s window and stopped cleanly — but the
+tape measure said ~1.8 m against a prediction of ~2.28 m. A 20% shortfall. We had just
+fixed the power and now the *distance* was wrong. Did the ramp cost us that much speed?
+Was the motor weak?
+
+WHY IT HAPPENED
+Not a bug — a measurement-model mismatch. Our prediction used a nominal 1.0 m/s that was
+optimistic, and open-loop wheels on carpet lose ~10–16% to slip and driveline
+compliance. The motion was healthy; the model was crude.
+
+FIX (took 1 day)
+None to code; we corrected the model and recorded the ~0.85–0.9 "driveline efficiency
+factor" as an empirical constant that v2.1's encoder-based speed loop will replace with
+truth. **Prevention.** We stopped predicting distance from nominal speeds; all future
+acceptance criteria are written against *measured* primitives, and the "predict then
+measure then explain the gap" ritual became our standard for every motion test.
+
+---
+
+E0003 | v2.0 | SMALL | Found Day 28 | Fixed in 3 days | the design review
+File : drive_forward.py
+Error : design rejected: Alternative D — Hardware soft-start
+Terminal : the design review
+
+WHAT HAPPENED
+Keep the instant step command but add a bulk capacitor bank and/or an inrush limiter
+(NTC thermistor or soft-start controller) on the motor supply so the rail never sags
+even under a hard step. Honest analysis: a big-enough capacitor bank (say 4 × 1000 µF)
+genuinely fixes the sag and is one afternoon of soldering. But it fixes the *symptom*
+(rail sag) while leaving the *cause* (step inputs hammering the driveline) intact, it
+consumes mass/volume from the WRO envelope, and it does nothing for gearbox lash or
+gentle pillar handling. Verdict: rejected for now, kept in the toolbox.
+
+WHY IT HAPPENED
+Verdict: rejected for now, kept in the toolbox.
+
+FIX (took 3 days)
+replaced by Alternative B — Ramp on the Pi side (chosen)
+
+---
+
+## v2.1 - V2.1 (Day 30-31)
+
+TOTAL ERROR : 3
+SMALL : 2
+BIG : 1
+
+E0004 | v2.1 | BIG | Found Day 30 | Fixed in 2 days | the commanded test produced circles
+File : turn_test.py
+Error : cmd
+Terminal : the commanded test produced circles
+
+WHAT HAPPENED
+the commanded test produced circles, but the measured radius at every angle was larger
+than the bicycle-model prediction, and the vehicle "waddled" — an audible scrubbing, a
+visible yaw wobble, and faint tire squeak on the painted concrete floor at the tightest
+angle (30°). At 10° the deviation was small; at 30° it was unmistakable. We measured
+0.95 m, 0.50 m, and 0.36 m respectively, versus predictions of 0.92 m, 0.45 m, and 0.28
+m — the error growing from 3 % to 29 % as the angle increased. The wobble had a period
+consistent with one wheel revolution, our first clue that it was tire-related and not
+bearing-related.
+
+WHY IT HAPPENED
+the rigid linear steering linkage enforces δ_inside = δ_outside = δf at every wheel,
+while kinematics demands δ_inside > δ_outside; the difference (up to ~27° of ideal split
+at the tightest commanded turn) manifests as tire scrub, which dissipates yaw rate and
+inflates the turning radius. It is not a servo fault, not a ratio fault, not slip at
+speed: it is an inherent Ackermann violation baked into the mechanical architecture
+chosen in v1.x for cheapness and simplicity.
+
+INVESTIGATION (only for BIG errors)
+We did not trust the servo first; we measured it. We clamped a protractor to the front
+wheel and the MG995 output horn and commanded 10°, 20°, 30° while the wheels were off
+the ground, using the same `cmd` function and the same frames. The servo reached 10.0°,
+19.9°, and 30.1° — within the ~1° deadband. H1 died on the bench: the actuator was
+honest. We then measured the rear wheel with the same protractor: at commanded 30°
+front, the rear showed 25.6° against the expected 25.5° (0.85 × 30°); the linkage ratio
+was honest too. H2 died on the bench. That left the physics: with δf and δr both
+confirmed, the only remaining terms in R = L / (tan δf − tan δr) that could inflate the
+radius are a wrong geometry assumption or a wrong no-scrub assumption. We re-measured
+wheelbase: 0.30 m confirmed. We then read the Ackermann condition we had written down
+and ignored: a rigid tie-bar linkage holds both front wheels at the same angle, but a
+proper turn demands the inside wheel steer more than the outside, cot δo − cot δi = T/L.
+With T = 0.25 m and L = 0.30 m at a commanded 30°, the ideal inside wheel needs about
+62.7° (from the tight 4WS radius) while the outside needs about 36.5°; our rigid linkage
+gives both wheels 30°, so both are wrong, and the net effect is that neither wheel rolls
+along its own tangent — each scrubs, the tires slip sideways, the effective slip angle
+grows, and the vehicle under-turns relative to the rigid-axle model.
+
+FIX (took 2 days)
+We could not change the linkage in this version, so we changed the model: we accepted
+the compromise explicitly, as the short CHANGE.md records. We adopted the
+single-effective-kappa view — the vehicle behaves as if commanded by one effective angle
+per axle pair, and the measured kappa absorbs the Ackermann error as a fitted,
+angle-dependent correction rather than pretending it does not exist. Concretely we
+stopped comparing measured radius to the ideal bicycle value as a pass/fail, and instead
+fitted the observed radius to the form R = L / (tan δf − tan δr) with the rear ratio k
+as a free parameter; the fit gave k = 0.80 rather than 0.85, meaning the effective rear
+contribution is slightly weaker than the mechanical ratio because the rear tires scrub
+too. That fitted k, and the per-angle kappa table (0.95 m → kappa 1.05 /m, 0.50 m → 2.0
+/m, 0.36 m → 2.78 /m), became the steering transfer function all later versions consume.
+We also changed the test protocol so each angle ran twice and only repeatable circles
+were recorded, because the wobble made single-shot radius readings unreliable.
+
+---
+
+E0005 | v2.1 | SMALL | Found Day 31 | Fixed in 1 day | the robot drove straight for six
+File : turn_test.py
+Error : turn_test.py
+Terminal : the robot drove straight for six
+
+WHAT HAPPENED
+the very first run of `turn_test.py` produced no circle at all — the robot drove
+straight for six seconds and stopped. The servo never moved from centre. Our first
+reaction was panic about the whole steering subsystem.
+
+WHY IT HAPPENED
+a single-bit ground-noise corruption on a 115200 baud line, combined with a framer that
+trusts a 2-byte sync and a 1-byte terminator but has no checksum, produced a silently
+dropped frame; and because the actuator state persists across dropped frames (the servo
+holds, the motor holds), the failure was silent — no reset, no error, just "nothing
+happened". The absence of the CRC8 that HISTORY.md says the protocol will eventually
+carry was the specific design gap that made this possible; byte 8 of the frame is still
+0x00 on Day 31.
+
+FIX (took 1 day)
+Immediate: tightened the USB connection, re-ran, and the test passed. The silent-drop
+behaviour was then made explicit rather than accidental: we added a repeat-trials
+protocol (each angle twice) so a single dropped frame would produce a non-repeatable
+circle and be caught by the repeatability check rather than silently accepted. Long-term
+fix recorded as protocol debt: implement the CRC8 on byte 8 and make the framer reject
+any frame whose checksum fails, which turns a silent drop into a detectable event.
+
+---
+
+E0006 | v2.1 | SMALL | Found Day 31 | Fixed in 1 day | we sat with a measured radius table
+File : turn_test.py
+Error : the over-constrained acceptance band almost rejected good data
+Terminal : we sat with a measured radius table
+
+WHAT HAPPENED
+at the end of Day 31 we sat with a measured radius table (0.95 / 0.50 / 0.36 m) and an
+initial, naive pass/fail against the ideal model (0.92 / 0.45 / 0.28 m) that said we had
+failed criterion B: the 30° point was 29 % off the prediction, outside the ±25 % band we
+had pre-registered. There was a real moment where we considered the experiment a failure
+and started planning the independent-servo refit.
+
+WHY IT HAPPENED
+a pre-registered acceptance criterion that was correct in spirit (single effective kappa
+measurable) but wrong in detail — it compared the measurement to a model that assumed a
+property the hardware cannot have. The band was calibrated on the ideal model rather
+than on the achievable model.
+
+FIX (took 1 day)
+we revised the criterion to the form that matters: criterion B now reads "the measured
+radius must match the single-effective-kappa fit within ±25 %" — comparing the
+measurement to the fitted model that includes scrub, not to the ideal model that ignores
+it — and the fit (with k = 0.80 and the kappa table above) passed easily, with residuals
+under 8 % at all three angles. We also reduced speed for the confirmation run to isolate
+the slip contribution.
+
+---
+
+## v2.2 - REFINED PWM THROTTLE: FROM A FIXED DUTY TO A CALIBRATED SPEED AXIS (Day 34-36)
+
+TOTAL ERROR : 8
+SMALL : 7
+BIG : 1
+
+E0007 | v2.2 | BIG | Found Day 34 | Fixed in 3 days | the first prototype with the motor driven through the shared-PWM setup produced
+File : pwm_control.py
+Error : The 50 Hz motor whine — the headline bug
+Terminal : the first prototype with the motor driven through the shared-PWM setup produced
+
+WHAT HAPPENED
+On the afternoon of Day 34, the first prototype with the motor driven through the
+shared-PWM setup produced a loud, high-contrast buzzing/whine from the drive motor
+whenever it was powered — worst around mid-duties. The sound was a continuous drone at
+roughly 50 Hz with audible harmonics at 100, 150, 200 Hz; at ~50 % duty it was loud
+enough to be heard across the lab, and it changed pitch slightly as the motor loaded.
+The robot was at rest (wheels free), so there was no wheel noise to blame; it was
+unambiguously the motor assembly.
+
+WHY IT HAPPENED
+The motor PWM was being generated at 50 Hz — because the first prototype reused the
+servo's timer configuration for the motor channel (the exact sharing that R3 later
+forbade). A 50 Hz PWM on a brushed motor whose coil time constant (L/R ≈ 0.4 mH/0.8 Ω ≈
+0.5 ms) is 40× shorter than the 20 ms switching period means the current fully collapses
+and rebuilds every cycle: a sawtooth of spikes, not smooth current. Those spikes (a)
+create the acoustic whine, (b) waste energy as iron/copper loss, and (c) produce a much
+lower *average* effective torque — which is why the robot also felt gutless at low duty.
+The bug was not "the motor whines"; the bug was "the PWM frequency is inside the audible
+band AND below the motor's ability to integrate the current."
+
+INVESTIGATION (only for BIG errors)
+Three steps. First, we killed variables: servo disconnected, motor only, wheels free, at
+rest — the whine persisted, killing hypothesis (2). Second, a phone spectrum app plus a
+6 € USB audio interface showed a clear fundamental at ~50 Hz with decaying harmonics to
+~1 kHz, and the fundamental tracked the *PWM* rate, not the motor speed — this killed
+hypothesis (1) and confirmed the driver was chopping at 50 Hz. Third, the moment of
+insight, we computed the ripple integral (C2): ΔI ≈ V·d·(1−d)/(f·L). At 50 Hz and L ≈
+0.4 mH the formula gives a wildly discontinuous current (idealized ~92 A; physically the
+inductor can't smooth at all). The pulses slam the coil every 20 ms, and
+magnetostriction plus commutation slap excite the structure at 50 Hz and harmonics: the
+motor is mechanically singing the chopping frequency.
+
+FIX (took 3 days)
+Two-part. Keep the servo exactly where it belongs — 50 Hz, 1–2 ms pulse, on its own LEDC
+channel (servos are *built* for a 50 Hz command train; changing that would break the
+MG995's position protocol). Move the motor to a dedicated LEDC channel at **20 kHz,
+8-bit** (duty 0–255). That single frequency change takes the idealized ripple from ~92 A
+to ~0.23 A — inaudible, energy-smooth, and the motor finally felt like a motor. The
+servo twitch from the shared-timer configuration vanished at the same moment.
+
+---
+
+E0008 | v2.2 | SMALL | Found Day 34 | Fixed in 3 days | the first sweep
+File : pwm_control.py
+Error : The "dead zone that wasn't there until we looked" error
+Terminal : the first sweep
+
+WHAT HAPPENED
+On the first sweep, commanded 0 % stopped correctly, but commanded 20 % produced
+*nothing* — no wheel rotation, no visible creep. The robot sat there at "20 %" for a
+full second. Team reaction: "the motor is broken / the map is wrong / the ESP32 didn't
+get the packet."
+
+WHY IT HAPPENED
+The torque–speed equation (C1) again, at the stall boundary. Below duty such that V_batt
+× duty < I_static × R_arm + k_e·0, the motor cannot break static friction. At 7.4 V, 8 %
+duty is 0.59 V average; with R_arm ≈ 0.8 Ω and a static-friction-equivalent current of
+~0.7 A, the breakaway point lands right there. This was not a code bug — it is a
+*physics* feature of every brushed motor, and we hadn't derived the breakaway point, so
+we were surprised by our own robot.
+
+FIX (took 3 days)
+Dead-zone compensation in the mapping (section 7.3): a measured offset of ~20/255 duty
+is added to any nonzero setpoint so that commanded 5 % produces visible creep, while
+command 0 still means a true short-brake stop. The offset is applied *only above zero* —
+preserving the semantic difference between "0 % (stop, wheels locked)" and "5 %
+(creep)". We documented the measured breakaway duty (≈ 8 %) in the calibration file as a
+first-class constant, not a magic number.
+
+---
+
+E0009 | v2.2 | SMALL | Found Day 36 | Fixed in 1 day | a team member asked "what happens if byte 8 is wrong?" and we realized we did no
+File : pwm_control.py
+Error : 0
+Terminal : a team member asked "what happens if byte 8 is wrong?" and we realized we did no
+
+WHAT HAPPENED
+During code review on Day 36, a team member asked "what happens if byte 8 is wrong?" and
+we realized we did not know — because the sweep harness *always* sends `0` in the CRC
+slot (line 6 of pwm_control.py), so the ESP32's reject path had never been exercised
+with a real corrupt frame.
+
+WHY IT HAPPENED
+A test harness that never sends bad frames cannot prove the parser's failure path. The
+`0` in the CRC slot was a readability choice that quietly removed the negative test
+case. No production code was wrong — the *test* was incomplete, which is its own kind of
+bug.
+
+FIX (took 1 day)
+Documented the stub (this section), and the next version's harness sends a rotation of
+{valid, corrupt-CRC, corrupt-magic, truncated} frames so the reject path is exercised on
+every run. The contract behavior itself was verified and kept.
+
+---
+
+E0010 | v2.2 | SMALL | Found Day 36 | Fixed in 1 day | The first three-run repeatability test at
+File : pwm_control.py
+Error : The run-to-run spread that was really battery sag
+Terminal : The first three-run repeatability test at
+
+WHAT HAPPENED
+The first three-run repeatability test at 80 % duty gave 1.52, 1.39, 1.48 m/s — a 9 %
+spread, inside our ±10 % criterion but *uncomfortably* so, and the trend was downward
+across the three runs. At 100 % the spread grew: 1.78, 1.65, 1.69 m/s, ~8 %. The robot
+was getting slower as the session went on.
+
+WHY IT HAPPENED
+2S LiPo with ~60 mΩ total internal resistance; 2.2 A peaks drop ~130 mV on their own,
+and cumulative drain across a session lowers the rest voltage further. An open-loop duty
+axis has no way to know the supply changed, so "80 % duty" means 1.52 m/s at the start
+and 1.39 m/s later. This is C1 in its purest form: duty is not speed, and the missing
+variable is supply voltage.
+
+FIX (took 1 day)
+Two parts. First, all repeatability measurements in section 10 were run with the pack
+freshly charged and recharged between every three-rep block, with pack voltage recorded
+before and after each block so the numbers are comparable. Second, the per-tick ramp and
+dead-zone map already give us *repeatable-within-a-charge* behavior; true
+supply-invariance is closed-loop territory (encoder + voltage compensation) and was
+formally deferred to the next version. We accepted the ±10 % criterion as the honest
+bound of an open-loop axis on a sagging pack.
+
+---
+
+E0011 | v2.2 | SMALL | Found Day 36 | Fixed in 1 day | While debugging 9
+File : pwm_control.py
+Error : The servo twitch that revealed channel sharing (companion to 9.1)
+Terminal : While debugging 9
+
+WHAT HAPPENED
+While debugging 9.1, with the motor PWM still at the wrong frequency, the steering servo
+audibly twitched every time the motor duty changed — a click-and-hold artifact at each
+speed step.
+
+WHY IT HAPPENED
+Shared timer. Once we split the channels (motor 20 kHz, servo 50 Hz, independent), the
+twitch disappeared with the whine. The two symptoms had one cause: **one PWM domain
+contaminating the other** because we had let the servo and motor share a timer.
+
+FIX (took 1 day)
+Same as 9.1: R3 (separate channels, separate frequencies), plus the standing rule that
+the servo domain and the motor domain are inspected separately at power-on. The twitch
+and the whine were one bug; we learned that lesson once and wrote it as a requirement.
+
+---
+
+E0012 | v2.2 | SMALL | Found Day 34 | Fixed in 3 days | the design review
+File : pwm_control.py
+Error : design rejected: Alternative A — keep fixed duty, add nothing (the v2.1 status quo)
+Terminal : the design review
+
+WHAT HAPPENED
+The cheapest option: one duty value for "go", one for "stop". It fails the mission
+instantly: no S-curve ramping, no crawl mode for the parking maneuver (v7.x parks to ±2
+cm), no gentle approach. Every wheel-slip event on the carpet is a *rate-of-change*
+problem, and a binary actuator has an infinite rate of change when it switches. It
+remains the reference baseline row for the matrix. **Alternative B — software PWM
+generated on the Pi GPIO (RPi-style `GPIO.PWM`).** Tempting, because the speed planner
+already lives on the Pi, so the wiring diagram would be trivial. It dies on three
+grounds. Ground one is scheduler reality: Linux under vision-load cannot guarantee
+tens-of-microsecond accuracy; a 3 ms scheduler hiccup on a 20 kHz channel is 60 missing
+or doubled cycles, pure jitter on motor torque at 100 Hz command rate. Ground two is the
+whine trap in disguise: soft PWM on a shared timer is exactly how we end up at a 50
+Hz-ish cadence and hearing it. Ground three is architecture: it violates the
+brain/muscle split. Rejected.
+
+WHY IT HAPPENED
+It fails the mission instantly: no S-curve ramping, no crawl mode for the parking
+maneuver (v7.x parks to ±2 cm), no gentle approach. Ground one is scheduler reality:
+Linux under vision-load cannot guarantee tens-of-microsecond accuracy; a 3 ms scheduler
+hiccup on a 20 kHz channel is 60 missing or doubled cycles, pure jitter on motor torque
+at 100 Hz command rate. Rejected.
+
+FIX (took 3 days)
+the chosen design, per the chapter's decision section
+
+---
+
+E0013 | v2.2 | SMALL | Found Day 34 | Fixed in 3 days | the design review
+File : pwm_control.py
+Error : design rejected: Alternative C — ESP32-S3 LEDC hardware PWM (the winner)
+Terminal : the design review
+
+WHAT HAPPENED
+Hardware timer, microsecond-accurate duty edges, independent channels so servo (50 Hz)
+and motor (20 kHz) coexist without fighting, 8-bit resolution comfortable at 20 kHz per
+C3, and zero extra hardware — the LEDC peripheral is already on the S3 we carry. The
+ESP32 owns the real-time domain by design, matching our brain/muscle contract. The cost
+is that the mapping + smoothing must be written in ESP32 firmware (the visible code here
+is the Pi-side test harness; section 7). On every axis except "effort to write the
+firmware side", this wins. **Alternative D — a separate PWM module, e.g. a PCA9685 I2C
+servo/PWM breakout.** A 16-channel I2C PWM driver could carry both channels with 12-bit
+resolution at 1 kHz. Honest analysis: 12-bit at 1 kHz is a *worse* motor PWM than 8-bit
+at 20 kHz — the 1 kHz fundamental is still inside the audible band (we would
+re-introduce a whine, just higher pitched), and the I2C bus already has the three ToF
+sensors plus the MPU6050; adding a 100 Hz stream of I2C PWM updates competes with ToF
+polling and makes the watchdog story harder. One extra part, one extra bus, one more
+failure mode, solving a channel-count problem we don't have. Rejected on physics and bus
+budget.
+
+WHY IT HAPPENED
+One extra part, one extra bus, one more failure mode, solving a channel-count problem we
+don't have. Rejected on physics and bus budget.
+
+FIX (took 3 days)
+the chosen design, per the chapter's decision section
+
+---
+
+E0014 | v2.2 | SMALL | Found Day 34 | Fixed in 3 days | the design review
+File : pwm_control.py
+Error : design rejected: Alternative E — analog voltage control via a DAC or a linear regulator
+Terminal : the design review
+
+WHAT HAPPENED
+The cleanest torque waveform would be a true analog 0–7.4 V line: zero ripple, zero
+whine, perfect low-speed creep. But a DAC adds a chip and a buffer stage, and a linear
+pass element burns (V_batt − V_out) × I as heat — at 7.4 V supply and 3.7 V average
+output at 2 A that is ~7.4 W we must sink on a 2.8 kg robot with no budget for it. It
+also removes the free short-brake behavior we rely on for stopping. Rejected: thermal,
+parts, and reuse all worse.
+
+WHY IT HAPPENED
+Rejected: thermal, parts, and reuse all worse.
+
+FIX (took 3 days)
+the chosen design, per the chapter's decision section
+
+---
+
+## v2.3 - SERIAL PACKET PROTOCOL V2 — CRC8 (Day 28-37)
+
+TOTAL ERROR : 6
+SMALL : 5
+BIG : 1
+
+E0015 | v2.3 | BIG | Found Day 37 | Fixed in 1 day | serial monitor
+File : uart_loop.py, drive_forward.py, pwm_control.py, turn_test.py, serial_protocol.py
+Error : int(speed * 10)
+Terminal : serial monitor
+
+WHAT HAPPENED
+During a Day 37 bench session driving the chassis by keyboard while watching the ESP32's
+serial monitor, the steering would occasionally snap full-hard to the left or right and
+the throttle would jump to full even though the commanded values were moderate (e.g.
+servo 15°, speed 40%). Repeated identical keyboard presses produced inconsistent
+behaviour: sometimes the robot tracked the command, sometimes it lurched. The ESP32's
+debug print showed raw decoded values like servo −3841° or speed 2048% — numbers
+physically impossible for the linkage, which told us the *decode* was producing garbage
+from *plausible-looking* bytes. The frame that produced them looked completely fine in
+the Pi's hex dump.
+
+WHY IT HAPPENED
+There was no single failing line — there was a *failing structure*. The scaling (×10 vs
+×100), the field semantics (percent vs PWM counts), and even the byte order were
+re-derived independently in every script and every firmware edit, and the wire format
+had *no authoritative definition* to contradict any of them. The bytes carried no scale
+information, no range information, and — because byte 8 was hardcoded `0x00` in all
+three old scripts — no integrity information. Any two divergent mental models produced a
+frame that was byte-legal, CRC-less, and physically wrong; the ESP32 had no way to know
+it had just received garbage, so it actuated it. The mechanism of the "out of range"
+symptom, specifically, was the *interaction between wrong scale and clamp*: the receiver
+clamped after scaling (speed 2040% → 100%), which converted an absurd number into a
+*plausible-looking full-throttle* command — the worst possible failure mode, because it
+looked like normal driving.
+
+INVESTIGATION (only for BIG errors)
+We attacked it in the order that eliminated hypotheses fastest. First, the hardware
+jitter test: we fed the servo a fixed, known pulse for 30 s on the scope and saw a
+clean, stable pulse — H1 died. Second, a loopback echo test: we sent `uart_loop.py`'s
+echo packet 20 times and the ESP32 echoed back all 20 intact — H2 died at the framing
+level. Third, we replayed the *exact* bytes the Pi had logged when the lurch happened,
+into a Python re-implementation of the ESP32 decode, and reproduced the garbage
+deterministically — H3 partially died, because the parser did exactly what its inputs
+asked. Fourth, and the moment of insight: we diffed the three driving scripts against
+each other. v2.0's `drive_forward.py` built the servo field as literal zeros and the
+speed field as `int(speed * 10)`; v2.2's `pwm_control.py` did the same; v2.1's
+`turn_test.py` built the servo field as `int(servo_deg * 100)`. Three scripts, three
+subtly different mental models of the same two fields, all writing to the same two int16
+positions. When a keyboard-driving prototype (written quickly, by hand, on Day 37
+morning) sent the speed in *PWM count units* (0–255, the natural thing to type while
+tuning the motor) into the field the ESP32 divided by 10 to get percent, a speed of 204
+on the wire decoded as 2040% and was clamped to 100 — full throttle from a modest input.
+And when that same prototype occasionally wrote the servo field with a ×10 scale while
+the ESP32 divided by 100, a 15° command arrived as 150° and the clamp in the firmware
+slammed the linkage against its stop.
+
+FIX (took 1 day)
+Exactly the change this version is named for. In `serial_protocol.py`, the scaling
+became part of the *frame contract*, not of the caller: `s = int(max(-45, min(45,
+servo_deg)) * 100)` and `v = int(max(-100, min(100, speed)) * 10)` live inside
+`PacketEncoder`, the one place every driving script is now required to go through.
+Clamping happens *before* scaling, so an out-of-range input can never produce an
+out-of-range int16. The ESP32's decode contract is the mirror image: divide by 100 and
+by 10, nothing else. And the whole thing is enforced end to end by a CRC that catches
+the residual class of errors (a byte flipped in transit) that no scale documentation can
+prevent.
+
+---
+
+E0016 | v2.3 | SMALL | Found Day 37 | Fixed in 1 day | corrupt frames were *invisible*
+File : serial_protocol.py
+Error : 0x00
+Terminal : corrupt frames were *invisible*
+
+WHAT HAPPENED
+In v2.0–v2.2, corrupt frames were *invisible*. Twice during v2.2's PWM sweep the robot
+twitched a full throttle tick that no experiment explained, and both times the serial
+logs showed a plausible 10-byte frame with nothing wrong in the hex dump — because there
+was no way for the dump to *show* wrongness: byte 8 was always `0x00`, a literal
+placeholder in every script (`..., 0, 0x0D)`), and byte 2 (the sequence slot) was always
+`0x00` too.
+
+WHY IT HAPPENED
+The old format *had* no integrity layer. A `0x00` in byte 8 is not a checksum, and a
+hardcoded `0x00` in byte 2 is not a sequence number; they were blank space we never
+filled. Any frame — good, corrupted, or garbage — decoded identically as long as it was
+10 bytes with the right header and footer. Corruptions are rare on this link (≈2 × 10^-6
+byte-error rate measured), but rare is not never, and "rare" at 100 Hz is a misbehaviour
+every ~7 minutes of continuous driving — the exact window a race round occupies.
+
+FIX (took 1 day)
+The CRC8 gate (byte 8, computed over bytes 0–7) and the live sequence counter (byte 2).
+A corrupted frame now either fails the footer sanity check or the CRC and is discarded
+with zero actuation, and a *duplicate* valid frame is caught by the sequence number. We
+verified the gate statistically (section 10, 10,000/10,000 single-bit mutations
+detected, 0 undetected).
+
+---
+
+E0017 | v2.3 | SMALL | Found Day 37 | Fixed in 1 day | This one never reached the robot
+File : serial_protocol.py
+Error : 0x0D00
+Terminal : This one never reached the robot
+
+WHAT HAPPENED
+This one never reached the robot, because we caught it in design, but it is the most
+instructive near-miss of the version. Our first ESP32 parser sketch scanned for the
+footer: "collect bytes until you see 0x0D, then check the CRC." During code review, a
+team member asked the question that exposed it: *what does the parser do when the
+payload itself contains a 0x0D byte?*
+
+WHY IT HAPPENED
+Framing and parsing were designed as two separate questions (footer scanning on one
+side, CRC on the other) instead of one integrated decision. A delimiter-only protocol
+must guarantee the delimiter cannot occur in the payload — either by escaping
+(SLIP/COBS, Alternative D) or by length counting. We had implicitly assumed a guarantee
+the format did not provide.
+
+FIX (took 1 day)
+The length-counted state machine of section 7.3: count 10 bytes, then verify byte 9 *is*
+0x0D as a sanity check only. The footer stops being a delimiter and becomes a constant,
+and the 0x0D-in-payload case simply cannot occur as a framing event. We verified with a
+targeted test: a frame carrying servo raw 0x0D00 parses identically to any other frame.
+
+---
+
+E0018 | v2.3 | SMALL | Found Day 37 | Fixed in 1 day | In the first end-to-end test after
+File : serial_protocol.py
+Error : 09 C4
+Terminal : In the first end-to-end test after
+
+WHAT HAPPENED
+In the first end-to-end test after the parser was written, servo commands above 255°
+(raw values whose high byte was nonzero) decoded on the ESP32 as a different,
+non-obvious angle — e.g. a commanded 25.00° (raw 0x09C4) arrived as some other value
+whose low byte looked swapped. Commands below 2.55° (raw high byte 0x00) worked
+perfectly, which made the bug look like a *range* problem rather than an ordering
+problem.
+
+WHY IT HAPPENED
+Big-endian-on-the-wire plus native-little-endian cast. We chose big-endian for wire
+readability (section 7.1), which is the right choice, but that choice *requires* the
+receiver to reassemble explicitly: `rawServo = (pkt[4] << 8) | pkt[5]` and the same for
+speed. Any code path that calls a native cast re-introduces the byte swap.
+
+FIX (took 1 day)
+The decode contract now states the reassembly explicitly, byte by byte, in the protocol
+spec and in the ESP32 firmware (`(pkt[4] << 8) | pkt[5]`), and the round-trip test
+(section 10.2) covers values spanning the full int16 range so a silent swap of the
+high/low order can never pass again.
+
+---
+
+E0019 | v2.3 | SMALL | Found Day 28 | Fixed in 10 days | the design review
+File : serial_protocol.py
+Error : design rejected: Alternative B — JSON over the wire
+Terminal : the design review
+
+WHAT HAPPENED
+`{"s":30.0,"v":50.0}\n` is ~18–22 bytes, about 2200 bytes/s at 100 Hz (19% load — still
+fits). But the ESP32-S3 would need a JSON parser (hundreds of KB of flash, µs-scale
+per-document parse, plus the edge-case carnival of NaN, exponent notation, and trailing
+commas), we would need to serialise/deserialise at both ends, and the *integrity*
+problem remains exactly as hard as text — you still need a frame delimiter and a
+checksum around the JSON. JSON's only advantage — self-describing fields — is worthless
+on a private 2-wire link between two firmware we control, where the schema changes once
+a season. It violates C4 grossly and was rejected on the first pass as a category error:
+this is not a human-consumable API, it is an inter-processor bus.
+
+WHY IT HAPPENED
+It violates C4 grossly and was rejected on the first pass as a category error: this is
+not a human-consumable API, it is an inter-processor bus.
+
+FIX (took 10 days)
+replaced by Alternative C — Fixed-length binary with CRC8 (CHOSEN)
+
+---
+
+E0020 | v2.3 | SMALL | Found Day 28 | Fixed in 10 days | the design review
+File : serial_protocol.py
+Error : design rejected: Alternative D — SLIP/COBS variable-length framing with byte-stuffing
+Terminal : the design review
+
+WHAT HAPPENED
+The honest idea here: instead of relying on a length count, escape every byte that
+collides with the delimiter so the frame is self-delimiting and can carry arbitrary
+payload lengths (this is how NMEA, CAN-over-UART, and many bootloaders work). Analysis:
+for a *fixed 6-byte payload* the variable-length machinery is pure overhead — COBS
+expands a 10-byte frame by up to 2 bytes worst case, and SLIP's escaping can double it,
+pushing worst-case frames to 12–20 bytes and *introducing* length-dependent timing into
+the 100 Hz cadence (violates R1). It also adds two code paths (encoder pass, decoder
+pass) with their own escape edge cases — exactly the kind of subtle surface this version
+exists to remove. Where COBS-style framing shines is *unknown or growing* payloads; our
+payload is nailed to 6 bytes for the next six versions. Rejected with a note to revisit
+only if the frame grows beyond ~32 bytes.
+
+WHY IT HAPPENED
+Rejected with a note to revisit only if the frame grows beyond ~32 bytes.
+
+FIX (took 10 days)
+replaced by Alternative C — Fixed-length binary with CRC8 (CHOSEN)
+
+---
+
+## v2.4 - PID STRAIGHT-LINE DRIVING (Day 39-41)
+
+TOTAL ERROR : 6
+SMALL : 5
+BIG : 1
+
+E0021 | v2.4 | BIG | Found Day 41 | Fixed in 1 day | tuning
+File : pid_straight.py
+Error : err
+Terminal : tuning
+
+WHAT HAPPENED
+During Day 41 tuning, after any deliberately large excursion — we yawed the robot 60° by
+hand or left a big heading error in the loop — the robot would recover to straight, then
+*keep curving the other way* for several seconds, as if a ghost were steering. The first
+time we saw it, the robot crossed the chalk line, corrected, then drifted 6–8 cm to the
+opposite side before slowly returning. Logged telemetry showed the heading error was
+near zero during the ghost-curve — the controller was steering with no error to correct,
+the defining signature of windup.
+
+WHY IT HAPPENED
+The integral accumulates error over *time*, and during a long transient the accumulation
+far exceeds what is needed to trim a steady bias. The I-term is dimensionally a "how
+long has the robot been off" memory, and an unbounded memory is a permanent rudder.
+Windup is the integral behaving *exactly as specified* — the bug is not the
+accumulation, it is the lack of a bound on what the accumulated value may do to the
+output: `out = ... + Ki·integral` has no mechanism to forget, and a controller with no
+forget mechanism can steer for no reason.
+
+INVESTIGATION (only for BIG errors)
+We replayed a recorded gyro stream through a Python re-implementation of the loop with
+the integral accumulator printed at every tick. The pattern was unmistakable: after the
+60° excursion, `err` sat near 60° for about a second, so `integral += err * dt`
+accumulated at ~60°·s per second. By the time the robot reached straight, the integral
+held a large value; the I-term kept commanding positive steering long after `err ≈ 0`,
+and with no error left to discharge, the ghost steering persisted for the full recovery
+time. With the *original* unclamped accumulator the value was enormous: a 60° error for
+1 s is an integral of 60, and `Ki·60 = 3.0°` of steering with zero heading error is a 3°
+rudder — at 0.75 m/s that curves the robot off-line at `0.023·3.0 = 0.069 rad/s ≈ 4°/s`,
+which matches the observed 6–8 cm ghost-curve.
+
+FIX (took 1 day)
+Two changes, both visible in the shipped code. First, the integral clamp: `integral =
+max(-20, min(20, integral + err * dt))` bounds the accumulator to ±20 degree-seconds,
+which caps the I-term's output at `Ki·20 = 1.0°` (section 5.5 Step 3). Second, the total
+output clamp: `cmd(max(-35, min(35, out)), 40)` bounds the sum, so even a pathological
+combination of terms cannot reach the mechanical stop. After the fix, the same 60°
+excursion recovery produced a ghost-curve of under 1° of steering (0.023 rad/s per
+degree × 1° ≈ 1.3°/s for the short time it took the integral to discharge) — the robot
+stayed within the 3° overshoot budget of AC3.
+
+---
+
+E0022 | v2.4 | SMALL | Found Day 41 | Fixed in 1 day | bench
+File : sensor_health.py
+Error : err
+Terminal : bench
+
+WHAT HAPPENED
+On Day 41, with the robot *stationary* on the bench, the integrated heading drifted
+visibly — roughly 0.3–0.4° of apparent yaw per minute, sometimes negative, sometimes
+positive, run to run. The first time we noticed, we accused the loop; the robot was not
+moving and yet `err` was slowly growing, which meant the controller was slowly *steering
+a stationary robot*.
+
+WHY IT HAPPENED
+The MPU6050's gyro carries a zero-rate offset — the datasheet quotes up to ±20°/s
+*uncalibrated*, and our unit measured about +0.06°/s (v1.x's IMU bring-up had
+effectively calibrated it, which is why it is this small). Integration is the amplifier:
+a constant `b` becomes a linear ramp in heading, and the one-point reference was a
+well-intentioned but mathematically toothless gesture — it cancels a single moment's
+noise, not a sustained offset.
+
+FIX (took 1 day)
+For a 6.7 s run, the measured `b ≈ 0.06°/s` produces `0.06·6.7 ≈ 0.4°` of apparent
+heading drift — inside the 0.5° budget of C4, and the P-I loop corrects for it (the
+robot steers a hair to "compensate" for a turn that never happened, which is the correct
+behaviour given the sensor's belief). We accepted the residual, fixed the *code smell*
+by understanding it, and filed the real fix as D2: a 100-sample at-rest average to
+estimate `b`, subtracted per-sample before integration, shipped in v3.x's
+`sensor_health.py` when runs stretch past ~30 s and the linear ramp stops being free.
+The journal records the honest line: we did not fully fix the bias in v2.4; we bounded
+it inside the acceptance criteria and scheduled the real fix with a trigger condition.
+
+---
+
+E0023 | v2.4 | SMALL | Found Day 40 | Fixed in 2 days | we shipped a script that builds its frames with the pre-v2.3 hand-literal `bytes
+File : serial_protocol.py
+Error : bytes([0xAA, 0x55, 0, 0x01, ..., 0, 0x0D])
+Terminal : we shipped a script that builds its frames with the pre-v2.3 hand-literal `bytes
+
+WHAT HAPPENED
+On Day 40, we shipped a script that builds its frames with the pre-v2.3 hand-literal
+`bytes([0xAA, 0x55, 0, 0x01, ..., 0, 0x0D])` and hardcodes the CRC byte to `0x00`. The
+robot drove correctly. That is the nothing went wrong — which is exactly the problem.
+
+WHY IT HAPPENED
+In the v2.3 review, AC6's rule was "no more hand-built frames; every script goes through
+`PacketEncoder.encode_drive()`". On Day 40 morning we wrote the new loop by copying the
+familiar v2.1/v2.2 literal from the bench wall instead of importing the new module — the
+fastest path to "make it move" was the old pattern, and nothing enforced the new one. It
+worked because the ESP32 image on the bench still gated on header + footer only and did
+not yet reject a zero CRC; the frames were therefore *accepted without integrity
+verification*. The latent hazard: v2.3's whole point was that byte 8 must protect bytes
+0–7, and a hardcoded `0x00` protects nothing. Any single-bit corruption — measured at
+~2×10⁻⁶ byte-error rate in v2.3, about one corrupt frame every few minutes of driving —
+would have been *applied*, exactly the failure the CRC exists to prevent.
+
+FIX (took 2 days)
+Import `PacketEncoder` from v2.3's `serial_protocol.py` and route `cmd()` through
+`enc.encode_drive(deg, spd)`, so the frame is clamped, scaled, CRC-protected, and
+sequence-counted by the single authoritative encoder. The v2.5 script went out with this
+fixed, and section 10 re-runs the end-to-end link test with the CRC gate enforced.
+
+---
+
+E0024 | v2.4 | SMALL | Found Day 41 | Fixed in 1 day | bench runs we saw occasional single-tick steering twitches
+File : pid_straight.py
+Error : dt
+Terminal : bench runs we saw occasional single-tick steering twitches
+
+WHAT HAPPENED
+During Day 41 bench runs we saw occasional single-tick steering twitches — a command
+spike of 3–5° lasting one tick and then vanishing, invisible to the eye in motion but
+visible in the logged output. They correlated loosely with the system's worst-case
+scheduling gaps.
+
+WHY IT HAPPENED
+Python scheduling jitter (C5) is a physical input to a term that divides by time. The
+code was correct in principle (measured `dt` is the right choice), but the derivative's
+*noise gain* `1/dt` is unbounded as `dt → 0`, and the loop had no guard.
+
+FIX (took 1 day)
+Two-part. First, a minimum-`dt` guard: the derivative is only computed when `dt > 0.001
+s`; otherwise it carries the previous value. Second, we sized the accepted risk — at `Kd
+= 0.1` the worst-case one-tick spike is bounded by the output clamp to 35°, i.e.
+`0.023·35 ≈ 0.8 rad/s` of yaw for 10 ms, a 0.46° heading kick, invisible in a 5 m run.
+We left `Kd = 0.1` and the guard, and documented that any future controller must treat
+`1/dt` terms as unbounded noise amplifiers until proven otherwise.
+
+---
+
+E0025 | v2.4 | SMALL | Found Day 39 | Fixed in 3 days | the design review
+File : pid_straight.py
+Error : design rejected: Alternative B — Magnetometer heading (a virtual compass)
+Terminal : the design review
+
+WHAT HAPPENED
+Rejecting this was the fastest decision of the version, because the evidence was already
+in our hardware log: we disabled the MPU6050's magnetometer in v1.x after watching its
+output swing tens of degrees whenever the motor or servo drew current. A compass on a
+robot pulling 2 A spikes through conductors 5 cm from the IMU is not a sensor, it is a
+dowsing rod; even re-enabled and calibrated in isolation, the field at the mount is a
+moving sum of motor, servo, and Earth fields that would need a filtering project, not a
+v2.x task, to separate. Rejected on hardware reality before any software. **Alternative
+C — Lateral position from a side-facing ToF sensor (VL53L0X) measuring distance to a
+wall or edge.** Honest appeal: position feedback would fix the *absolute* lateral
+deviation that heading-only control cannot, and the VL53L0X parts already exist in the
+project (XSHUT-sequenced, intended for v3.x). But on Day 40 there are no arena walls —
+the gym has no track to follow — and the VL53L0Xs are not mounted on the sides. A ToF
+also measures *distance to a wall*, not *position in the lane*; it needs a wall model
+and a left/right pair to subtract out the vehicle's own rotation, which is precisely the
+fusion v4.x and v5.x will build. Adding side mounts, a wall hypothesis, and a
+left-minus-right pairing on Day 40 would triple the version's scope for a sensor that
+has nothing to measure yet. Deferred, and written down as the v4.x wall-following seed.
+
+WHY IT HAPPENED
+Rejecting this was the fastest decision of the version, because the evidence was already
+in our hardware log: we disabled the MPU6050's magnetometer in v1.x after watching its
+output swing tens of degrees whenever the motor or servo drew current. Rejected on
+hardware reality before any software. **Alternative C — Lateral position from a
+side-facing ToF sensor (VL53L0X) measuring distance to a wall or edge.** Honest appeal:
+position feedback would fix the *absolute* lateral deviation that heading-only control
+cannot, and the VL53L0X parts already exist in the project (XSHUT-sequenced, intended
+for v3.x).
+
+FIX (took 3 days)
+the chosen design, per the chapter's decision section
+
+---
+
+E0026 | v2.4 | SMALL | Found Day 39 | Fixed in 3 days | the design review
+File : pid_straight.py
+Error : design rejected: Alternative D — Camera-based heading (vanishing point / lane edge)
+Terminal : the design review
+
+WHAT HAPPENED
+The temptation was real: the camera runs 640×480 at 30 fps and is on v3.x's critical
+path. The numbers killed it. 30 fps means a 33 ms frame period and measured 50–100 ms of
+end-to-end latency; at 0.75 m/s that is 4–8 cm of travel before the correction starts —
+2–4× our entire lateral budget. The camera also consumes the CPU v3.x will need for
+pillars, and on Day 40 the gym floor has no markers the pipeline can detect reliably at
+speed. The camera is a *planning* sensor (where is the track), not a *stabilisation*
+sensor (am I pointing straight); feeding both from one 33 ms-stale image is how teams
+get an oscillating robot. Gyro for stabilisation now, camera for navigation later — the
+division of labour is the lesson. **Alternative E — No feedback: keep trimming the servo
+centre until the drift disappears.** This is what v2.0–v2.3 implicitly were, and it
+deserves an honest analysis rather than dismissal. For a single run on a single battery
+at a single temperature it works: trim the centre offset by 0.8°/s worth of steering and
+the robot appears straight. But the trim is a function of battery voltage (motor torque
+asymmetry changes with rail sag), tyre temperature, floor surface, and the exact
+position the linkage settled into after the last turn. The v2.5 trajectory version will
+need exactly one such bias trim, and we will keep the open-loop baseline for measurement
+— but as the *primary* method for race day it is a plan that fails the moment conditions
+change, and it learns nothing about the robot. The 20 cm measurement is the permanent
+prosecution exhibit against E. **Alternative F — A complementary filter / Kalman on the
+Pi fusing gyro with magnetometer and accelerometer.** A tempting "proper engineering"
+answer, rejected for scope. The accelerometer cannot help with yaw (it measures linear
+acceleration, not rotation about the vertical, and pitch/roll on the 4WS linkage
+contaminates it); the magnetometer is dead (B). A Kalman over one sensor is a Kalman
+with one input — it buys nothing over a well-posed integrator plus bias trim while
+adding a tuning surface and a failure mode we cannot reason about on Day 42. The real
+fusion belongs to v5.x, where multiple sensors exist and a UKF has something to fuse.
+Here there is exactly one. We chose the minimum structure that closes the loop and wrote
+the note: *if the single-sensor loop misbehaves, the fix is more sensors, not a cleverer
+filter over the one we have.*
+
+WHY IT HAPPENED
+**Alternative E — No feedback: keep trimming the servo centre until the drift
+disappears.** This is what v2.0–v2.3 implicitly were, and it deserves an honest analysis
+rather than dismissal. The v2.5 trajectory version will need exactly one such bias trim,
+and we will keep the open-loop baseline for measurement — but as the *primary* method
+for race day it is a plan that fails the moment conditions change, and it learns nothing
+about the robot. **Alternative F — A complementary filter / Kalman on the Pi fusing gyro
+with magnetometer and accelerometer.** A tempting "proper engineering" answer, rejected
+for scope. The accelerometer cannot help with yaw (it measures linear acceleration, not
+rotation about the vertical, and pitch/roll on the 4WS linkage contaminates it); the
+magnetometer is dead (B). A Kalman over one sensor is a Kalman with one input — it buys
+nothing over a well-posed integrator plus bias trim while adding a tuning surface and a
+failure mode we cannot reason about on Day 42.
+
+FIX (took 3 days)
+the chosen design, per the chapter's decision section
+
+---
+
+## v2.5 - OPEN-LOOP TRAJECTORY: CHAINED TIMED WAYPOINTS AND THE PRICE OF TIME (Day 44)
+
+TOTAL ERROR : 5
+SMALL : 4
+BIG : 1
+
+E0027 | v2.5 | BIG | Found Day 44 | Fixed in 1 day | the first full-lap attempt used the Alt-A chained code
+File : open_loop_traj.py
+Error : time.sleep
+Terminal : the first full-lap attempt used the Alt-A chained code
+
+WHAT HAPPENED
+On Day 44, the first full-lap attempt used the Alt-A chained code: ```python for deg,
+spd, dur in plan: cmd(deg, spd) time.sleep(dur) ``` The robot completed the rectangle,
+but the total time from first command to the visible stop was clearly longer than 6.4 s.
+Stopwatch measurement from the video: **7.36 s** for a 6.4 s plan — a **15.0% stretch**.
+The robot also visibly "strolled" on the second straight longer than the first, and the
+terminal position was ~40 cm past the start marker instead of the nominal return. The
+lap *worked* (AC-1 passed: no input, it returned roughly to the start) but every timing
+criterion (AC-2, AC-5) failed.
+
+WHY IT HAPPENED
+On Raspberry Pi OS, `time.sleep` requests a *minimum* sleep via the kernel's `hrtimer`;
+the actual wake is quantized by the timer wheel and by other kernel work. Under
+near-idle load the wake overshoot follows a roughly uniform distribution in [0, ~2.5 ms]
+with a mean ≈ 1.2 ms. In chained scheduling, segment k's wall-clock start is `t_start_k
+= t_planned_start_k + Σ_{i<k} ε_i` where `ε_i` is segment i's total overshoot (which
+itself is the sum of ~200 per-call overshoots). The total lap stretch is therefore
+`Σ_{k=1..4} ε_k ≈ 640 × 1.2 ms ≈ 0.77 s`, matching the measured 12–15%. The error is
+*bounded only by the number of sleep calls*, so it is unbounded in the sense that longer
+plans (or finer slices) grow it linearly. It is not a bug in Python, not a bug in the
+ESP32, not a hardware fault — it is a **category error**: we used a relative timer where
+an absolute deadline was required.
+
+INVESTIGATION (only for BIG errors)
+We reverted to a *pure timing probe*: a 40-line script that logged `time.time()` before
+and after each of 640 `time.sleep(0.01)` calls under the same near-idle Pi load. The
+results (Section 10, Table 1) showed a mean per-call overshoot of **1.2 ms** (range
+0–2.5 ms, occasional 4 ms spikes when Wi-Fi/SSH woke). 640 calls × 1.2 ms mean = **0.77
+s** — a 12% stretch. The observed 15% included the two turn segments' extra per-segment
+overhead. The mechanism was now arithmetic: `time.sleep(dur)` is *relative*, so each
+segment's start inherits every previous segment's lateness, and each segment *also* ends
+late on its own. The errors add — exactly the `Σe_i` term of Section 5.5.
+
+FIX (took 1 day)
+Replace the chained sleeps with the absolute-deadline scheduler of Section 7.4: capture
+`t0` once; wait until `t0 + cumulative_sum`; slice the wait with `time.sleep(0.01)`;
+re-read the wall clock at every check. The residual error becomes bounded by one slice
+plus scheduler jitter, independent of plan length. Measured post-fix lap time: **6.48
+s** (1.3% over plan) — within AC-2's ±5%.
+
+---
+
+E0028 | v2.5 | SMALL | Found Day 44 | Fixed in 1 day | In the 6
+File : open_loop_traj.py
+Error : pass
+Terminal : In the 6
+
+WHAT HAPPENED
+The start-wait `while ... : pass` in the fixed code spins the CPU during its (short)
+duration. In the 6.4 s lap it is harmless. But we caught ourselves during code review:
+if anyone copies this pattern for a long "wait until segment start 30 s away," it
+becomes a 100%-core spin for 30 s.
+
+WHY IT HAPPENED
+No mechanism failure; a *pattern-hazard*. The end-wait sleeps, the start-wait does not —
+an asymmetry with no engineering justification except the specific durations in `plan`.
+
+FIX (took 1 day)
+In v2.6 we will make the start-wait also sleep-slice. For v2.5 we documented it and
+moved on (the measured cost is <1 ms total).
+
+---
+
+E0029 | v2.5 | SMALL | Found Day 44 | Fixed in 1 day | The robot's straight segments covered ~3
+File : open_loop_traj.py
+Error : Secondary issue — unmeasured speed calibration
+Terminal : The robot's straight segments covered ~3
+
+WHAT HAPPENED
+The robot's straight segments covered ~3.2 m, not the ~3.0 m we expected from a nominal
+1.4 m/s × 2.0 s, i.e. the calibration was off by ~7%.
+
+WHY IT HAPPENED
+We had calibrated speed 35 with a single 3.0 m run on a fresh battery. Under the *lap*
+conditions (battery sag from servo loads, warm motor, different tire contact), the
+effective speed differed. This is not a bug — it is the *definitional* error of
+open-loop dead reckoning (C4/C5).
+
+FIX (took 1 day)
+None in v2.5 (deferred, Section 5.6); recorded as the "distance proxy is approximate"
+number to feed v3.x.
+
+---
+
+E0030 | v2.5 | SMALL | Found Day 44 | Fixed in 1 day | review we realized the trajectory sends
+File : open_loop_traj.py
+Error : Secondary issue — the 200 ms watchdog tension (debt, not bug)
+Terminal : review we realized the trajectory sends
+
+WHAT HAPPENED
+During review we realized the trajectory sends no frame for up to 2.0 s (the straight
+segments), yet the ESP32's 200 ms watchdog never tripped in practice.
+
+WHY IT HAPPENED
+No observed failure; a *latent* contract mismatch between the Pi (few frames per lap)
+and the watchdog spec (needs 100 Hz). It works today by firmware behavior we do not
+fully control.
+
+FIX (took 1 day)
+v3.x must add a 100 Hz keep-alive on the Pi side and restore CRC8 framing. This is
+recorded as the top entry of Section 13's debt list.
+
+---
+
+E0031 | v2.5 | SMALL | Found Day 44 | Fixed in 1 day | Post-fix laps consistently ended 8–15 cm
+File : open_loop_traj.py
+Error : Secondary issue — terminal error from heading bias
+Terminal : Post-fix laps consistently ended 8–15 cm
+
+WHAT HAPPENED
+Post-fix laps consistently ended 8–15 cm laterally offset from the start marker, with
+heading visibly skewed ~2–5°.
+
+WHY IT HAPPENED
+The MG995's mechanical 0° (after linkage slop) is not the electrical 0°; the two turns
+produce asymmetric actual yaw; and the dead-reckoning lateral-miss model of C4 predicts
+exactly this: ~2° bias × 3.0 m ≈ 10 cm. This is the *expected* open-loop residual — the
+number that justifies the baseline.
+
+FIX (took 1 day)
+None in v2.5 by design; this is the measurement the version exists to make. Fed forward
+to v3.x IMU work.
+
+---
+
+## v2.6 - STOP AND REVERSE: MASTERING COMMANDED BRAKING (Day 46)
+
+TOTAL ERROR : 8
+SMALL : 7
+BIG : 1
+
+E0032 | v2.6 | BIG | Found Day 46 | Fixed in 1 day | the robot kept rolling and covered
+File : stop_reverse.py
+Error : cmd(0, 0)
+Terminal : the robot kept rolling and covered
+
+WHAT HAPPENED
+after sending `cmd(0, 0)` (the natural "stop" we had been using since v2.0), the robot
+kept rolling and covered about 30 cm before stopping on friction. On the 60 fps footage,
+the robot visibly glided past the chalk marker.
+
+WHY IT HAPPENED
+since v2.0, the "stop" implementation in the ESP32 firmware disabled the driver (STBY
+LOW) to guarantee no motion. That is the classic freewheel stop: the motor is
+electrically disconnected and coasts. The physics of a freewheel stop are entirely
+frictional, so the 30 cm was not a bug in the stop *command* — it was a bug in the stop
+*semantics*. We had been treating "stop" as "release," and the robot had been coasting
+the whole time, every version, on every script exit. This was also the moment we
+realized the v1.8 self-test was blind to the distinction: it checked "motor not driven"
+but not "motor braked," which is why the flaw survived the hardware validation phase.
+
+INVESTIGATION (only for BIG errors)
+we replayed the packet capture — the Pi sent the packet, the ESP32 acknowledged by LED
+blink (the v1.7 debug LED wiring proved its worth again). The pin states were probed
+with a logic analyzer: after the stop command, both IN lines were LOW, PWM was LOW — and
+STBY was LOW. The driver was **disabled**, outputs high-impedance, motor freewheeling.
+The investigation took one evening, and the crucial artifact was the habit of *checking
+the actuator state, not just the command stream*. A developer who only replays packets
+concludes "command sent, command received" and moves on; a developer who probes the
+output pins sees the truth. From v2.6 onward, every error investigation in this journal
+follows the same ladder: command stream → parse → pin state → physical result. Skipping
+a rung has cost us hours.
+
+FIX (took 1 day)
+implement dynamic short braking as a distinct state: STBY HIGH, IN1 LOW, IN2 LOW, PWM
+LOW. The motor terminals are shorted through the low-side FETs; the motor's back-EMF
+drives a braking current; the motor decelerates hard. The EMSTOP opcode (0x02) selects
+this state explicitly.
+
+---
+
+E0033 | v2.6 | SMALL | Found Day 46 | Fixed in 1 day | in early trials
+File : stop_reverse.py
+Error : 2 — The robot twitched forward briefly right after the brake
+Terminal : in early trials
+
+WHAT HAPPENED
+in early trials, right at the EMSTOP moment, the robot gave a small forward lurch before
+stopping. It was small enough to be easy to dismiss — a few millimeters — but it
+repeated on every trial, which made it suspicious in a different way: noise is random,
+this was systematic.
+
+WHY IT HAPPENED
+not a firmware ordering bug — a bridge state transition artifact. The brake applies
+instantly, but the motor's electrical time constant (L/R of the winding) means the
+current in the winding does not vanish instantly; with the terminals shorted, the
+decaying current produces a brief forward torque until the current collapses. The lurch
+was a few millimeters, but it is exactly the kind of small non-determinism that eats a
+±2 cm parking tolerance. The magnitude is bounded by the stored inductive energy ½LI²,
+which is why the lurch scaled with pre-brake speed. 7 S-curve: a smooth ramp to
+near-zero speed before the final brake minimizes ½LI² and thus the lurch — another
+example of planned stops and emergency stops being complementary rather than competing
+designs.
+
+FIX (took 1 day)
+this was mostly a measurement finding, not a code fix. We noted the lurch magnitude
+(~3-5 mm) and decided the parking maneuver should brake slightly *before* the final
+approach line and creep the last few cm at low speed, so the lurch happens away from the
+boundary. Later versions added a short brake-hold time before considering the robot
+parked. The physical
+
+---
+
+E0034 | v2.6 | SMALL | Found Day 46 | Fixed in 1 day | during a full-speed brake trial
+File : stop_reverse.py
+Error : 3 — The battery dipped below the ESP32 logic rail during hard brake
+Terminal : during a full-speed brake trial
+
+WHAT HAPPENED
+during a full-speed brake trial, the multimeter (logging at 10 samples/s) caught the
+pack dipping; a second trial with an oscilloscope showed a ~300 mV sag for ~40 ms at the
+brake moment.
+
+WHY IT HAPPENED
+dynamic braking returns energy to the supply. A battery has internal resistance; the
+returned current causes a voltage rise on the pack... and a subsequent dip when the
+current source collapses, plus the wiring resistance between the driver and the pack.
+The ESP32 runs from a regulated 3.3 V rail derived from the pack; a deep sag pulls the
+regulator input near its dropout and the ESP32 can brown out.
+
+FIX (took 1 day)
+measurement first — the sag stayed above the regulator's dropout threshold in all trials
+(300 mV off a 7.4 V 2S pack leaves 7.1 V), so no hardware change was strictly required.
+We added a large electrolytic capacitor (470 µF) across the driver's supply pins anyway
+— cheap insurance that also smooths the reverse-transition spike. The brake current was
+capped implicitly by motor parameters; no current limiting needed.
+
+---
+
+E0035 | v2.6 | SMALL | Found Day 46 | Fixed in 1 day | the robot drifted laterally instead of
+File : stop_reverse.py
+Error : cmd(0, -40)
+Terminal : the robot drifted laterally instead of
+
+WHAT HAPPENED
+during `cmd(0, -40)`, the robot drifted laterally instead of driving straight backward.
+The drift accumulated steadily over the 1.5 s run, reaching roughly 4 cm of lateral
+displacement by the end.
+
+WHY IT HAPPENED
+mechanical geometry, not software. In reverse, the steering corrections act "behind" the
+pivot, and any tiny compliance in the 4WS linkage (backlash in the MG995 gearbox, the
+rear ratio 0.85 multiplying error) steers the robot more than the equivalent forward
+error. This is the classic castor-instability of reverse driving — the same reason a
+shopping trolley wheel flips direction when pushed backwards. It is not a bug to fix in
+v2.6 — it is a fact to design around. The H3 hypothesis was not fully disproven, but
+H2's mechanism dominated: the systematic one-sided drift under zero steering matched a
+static compliance offset, not a direction-dependent backlash.
+
+FIX (took 1 day)
+keep reverse speed modest (raw −40 ≈ 40% of forward test speed) and reverse durations
+short (1.5 s in the test). For parking later, reverse would be done in slow, short,
+measured steps with gyro feedback (v3.x gives us the yaw rate to close that loop).
+
+---
+
+E0036 | v2.6 | SMALL | Found Day 46 | Fixed in 1 day | in a few trials
+File : stop_reverse.py
+Error : 5 — The brake command worked but the robot crept after "stopped"
+Terminal : in a few trials
+
+WHAT HAPPENED
+in a few trials, after the robot had visually stopped, a slow creep of 1-2 cm continued
+for up to half a second before the wheels truly locked.
+
+WHY IT HAPPENED
+mechanical compliance, not electronics. The drivetrain (gearbox teeth, coupling, wheel
+spokes) stores elastic energy while driving; when the motor locks, that stored energy
+unwinds and pushes the robot a few more centimeters. The magnitude depends on how
+abruptly the brake engages — the harder the brake, the more elastic energy is still
+stored when the motor stops. This is why the "settle time" concept exists in robotics: a
+stopped robot is not settled for at least 100 ms.
+
+FIX (took 1 day)
+no code change — the creep is physical. The verification protocol now waits ≥ 100 ms
+after EMSTOP before measuring the final position, and the mission layer's stop-line
+triggering accounts for the settle creep by adding it to the braking trigger offset. In
+parking (v7.x) the final approach uses a slow creep-then-brake sequence that minimizes
+stored energy at the moment of lock, making the parked position repeatable.
+
+---
+
+E0037 | v2.6 | SMALL | Found Day 46 | Fixed in 1 day | the design review
+File : stop_reverse.py
+Error : design rejected: Alternative A — Keep freewheel stop, rely on friction
+Terminal : the design review
+
+WHAT HAPPENED
+The cheapest option: do nothing, let the robot coast. Rejected because v2.5 measured ~30
+cm of coast; the parking tolerance is ±2 cm; 30 cm of coast guarantees failure of the
+parking maneuver and likely wall contact in emergency brake scenarios. Also
+non-deterministic across floor surfaces (carpet vs smooth vinyl changes friction by a
+factor of 2-3).
+
+WHY IT HAPPENED
+Rejected because v2.5 measured ~30 cm of coast; the parking tolerance is ±2 cm; 30 cm of
+coast guarantees failure of the parking maneuver and likely wall contact in emergency
+brake scenarios.
+
+FIX (took 1 day)
+replaced by Alternative B — Dynamic short braking via TB6612FNG (chosen)
+
+---
+
+E0038 | v2.6 | SMALL | Found Day 46 | Fixed in 1 day | the design review
+File : stop_reverse.py
+Error : design rejected: Alternative D — Electromagnetic/mechanical brake add-on
+Terminal : the design review
+
+WHAT HAPPENED
+Add a solenoid brake or brake pad. Strengths: strongest hold. Weaknesses: weight and
+size against WRO limits, extra power draw, complexity, another failure point. Rejected
+at hardware level — the chassis was already built.
+
+WHY IT HAPPENED
+Weaknesses: weight and size against WRO limits, extra power draw, complexity, another
+failure point. Rejected at hardware level — the chassis was already built.
+
+FIX (took 1 day)
+replaced by Alternative B — Dynamic short braking via TB6612FNG (chosen)
+
+---
+
+E0039 | v2.6 | SMALL | Found Day 46 | Fixed in 1 day | the design review
+File : stop_reverse.py
+Error : design rejected: Alternative E — Software deceleration ramp to a stop (S-curve to zero)
+Terminal : the design review
+
+WHAT HAPPENED
+Use the v2.7 S-curve profile (which we would build next anyway) to ramp speed to zero.
+Strengths: smooth, no wheel slip. Weaknesses: the ramp is only as good as the speed
+control behind it, and without an encoder we have no speed feedback — the "speed" is an
+open-loop PWM mapping. The ramp works for planned stops; it cannot serve as the
+emergency brake. So we chose dynamic brake for the stop, and the S-curve for planned
+deceleration later. **Why not both A and B (freewheel at low speed, brake at high
+speed)?** One interesting hybrid was proposed: brake hard above a speed threshold and
+freewheel below it, on the theory that the last few centimeters of dynamic braking are
+weak anyway (back-EMF → 0 as speed → 0). The counter-analysis: the dynamic brake's weak
+low-speed region is self-limiting — as the robot slows, the braking force naturally
+fades, so it cannot overshoot from the brake itself; it just transitions smoothly to
+friction. Switching to freewheel at a threshold would *reintroduce* a discontinuity and
+a surface dependence for no benefit. The hybrid was rejected as complexity without
+benefit. The physics already gives us the best of both: strong braking when fast, gentle
+fading when slow. **The measurement plan that preceded any wiring.** Before choosing
+irreversibly, we wrote down what the verification must show for the decision to stand:
+(1) stop distance mean and spread on one surface, (2) a one-floor comparison to prove
+surface independence, (3) a battery sag trace during brake, (4) a watchdog-kill test
+proving the brake persists when the Pi disappears. These four measurements map
+one-to-one to the four risks of dynamic braking (distance, determinism, brownout,
+orphaned robot). Every later version that introduced a risky mechanism adopted this
+pattern: *decide what evidence would change your mind, then collect exactly that
+evidence.*
+
+WHY IT HAPPENED
+The ramp works for planned stops; it cannot serve as the emergency brake. The
+counter-analysis: the dynamic brake's weak low-speed region is self-limiting — as the
+robot slows, the braking force naturally fades, so it cannot overshoot from the brake
+itself; it just transitions smoothly to friction. The hybrid was rejected as complexity
+without benefit.
+
+FIX (took 1 day)
+replaced by Alternative B — Dynamic short braking via TB6612FNG (chosen)
+
+---
+
+## v2.7 - S-CURVE SPEED RAMP (Day 28-49)
+
+TOTAL ERROR : 9
+SMALL : 8
+BIG : 1
+
+E0040 | v2.7 | BIG | Found Day 49 | Fixed in 1 day | the launch was quieter but still
+File : s_curve_ramp.py
+Error : for i in range(0, 101): drive(i);   time.sleep(0.01)
+Terminal : the launch was quieter but still
+
+WHAT HAPPENED
+After trying `for i in range(0, 101): drive(i); time.sleep(0.01)` (1-unit steps, 1.0 s),
+the launch was quieter but still chirped — and corner exits chirped *unchanged*.
+
+WHY IT HAPPENED
+Each 1-unit step is still a **velocity discontinuity**. The tire is an elastic body; a
+step in commanded velocity is a step in required force (F = m·Δv/Δt with Δt→0), and even
+0.018 m/s instantaneously demands a force impulse. The contact patch slips
+microscopically, rings, and squeaks. The *magnitude* of the step was never the issue;
+the *discontinuity* was. Hypothesis (c) was half-right — there is backlash — but the
+kick *period* (10 ms) matched the sample rate, not any mechanical resonance, which is
+what pointed us at the profile shape itself.
+
+INVESTIGATION (only for BIG errors)
+We measured (mic RMS) rather than listening: chirp amplitude dropped ~4 dB vs the
+10-unit staircase but never crossed the noise floor. We then null-tested by running the
+ramp with the servo *unplugged* — the chirp persisted, ruling out (d). We scoped the PWM
+map by logging the actual duty on the ESP32 — it tracked the command 1:1, ruling out
+(b). We grabbed the chassis and felt the pulses: one kick per 10 ms step.
+
+FIX (took 1 day)
+Abandoned all linear ramps; switched to a function with a continuous derivative (sine).
+
+---
+
+E0041 | v2.7 | SMALL | Found Day 49 | Fixed in 1 day | the ramp joined cruise with a
+File : s_curve_ramp.py
+Error : cmd(100 * math.sin(math.pi / 2 * frac))
+Terminal : the ramp joined cruise with a
+
+WHAT HAPPENED
+With `cmd(100 * math.sin(math.pi / 2 * frac))` but *without* the trailing `cmd(100)`,
+the ramp joined cruise with a visible 2-unit bump, and the chassis gave one small kick
+right at 500 ms.
+
+WHY IT HAPPENED
+The sine asymptotically approaches v_max but never reaches it inside the loop;
+terminating the loop *is* a command discontinuity of ~0.02 units plus the transition to
+"no more commands." Physically trivial (~0.36 mm/s), but the team's own AC1 standard —
+*no* velocity step — was being violated by an off-by-epsilon.
+
+FIX (took 1 day)
+The explicit `cmd(100)` after the loop pins the exact cruise value and makes the join
+explicit.
+
+---
+
+E0042 | v2.7 | SMALL | Found Day 49 | Fixed in 1 day | bench
+File : s_curve_ramp.py
+Error : 0
+Terminal : bench
+
+WHAT HAPPENED
+Code review flagged that `s_curve_ramp.py` writes `0` into the checksum position (the
+packet is `... v & 0xFF, 0, 0x0D`), while v2.3's `PacketEncoder` computes
+`calculate_crc8(HEADER + payload)`. The bench script violates the protocol it claims to
+use.
+
+WHY IT HAPPENED
+No single source of truth for the packet format. The protocol was defined in v2.3, but
+the bench script re-implemented it by hand instead of importing `PacketEncoder`, and the
+ESP32 firmware variant differed. Two copies of a 10-byte format drifted.
+
+FIX (took 1 day)
+For v2.7's purposes (a 1.8 m lab cable) the risk was accepted, but the bug was
+*tracked*: the v2.9 sequence-counter work (Section 13) enforced CRC + seq on both ends
+and deleted the debug firmware. The lesson is that a bench script is still
+firmware-facing code.
+
+---
+
+E0043 | v2.7 | SMALL | Found Day 49 | Fixed in 1 day | a 15-minute bench session the Pi's
+File : s_curve_ramp.py
+Error : time.time()
+Terminal : a 15-minute bench session the Pi's
+
+WHAT HAPPENED
+During a 15-minute bench session the Pi's clock got stepped by ~0.4 s (test harness ran
+`date`); the ramp *skipped* — two velocity samples sent nearly together, then a long
+gap.
+
+WHY IT HAPPENED
+`time.time()` is wall-clock (CLOCK_REALTIME); on a headless bench Pi without NTP it
+normally advances monotonically, but any external step (manual `date`, NTP) is a
+velocity error injected into the ramp.
+
+FIX (took 1 day)
+None in v2.7 (accepted; noted for v6.x to use `time.monotonic()`), because the
+production system has no clock stepper and the probability is near-zero — but the
+*reason* it was accepted is recorded: a 0.4 s clock step on a competition floor is
+inconceivable with NTP disabled and no operator touching the Pi.
+
+---
+
+E0044 | v2.7 | SMALL | Found Day 49 | Fixed in 1 day | AC1 passed on straight-line launches (20/20
+File : s_curve_ramp.py
+Error : Corner-exit chirp initially missed because the launch test passed
+Terminal : AC1 passed on straight-line launches (20/20
+
+WHAT HAPPENED
+AC1 passed on straight-line launches (20/20 clean), but the first corner-exit test (20°
+steer → straighten → ramp to full) chirped on 3/10 tries.
+
+WHY IT HAPPENED
+Confirmed C5 quantitatively: at the moment of ramp start the robot still has residual
+yaw rate from the corner; the tire is still generating lateral force (a_lat ≈ 4-5 m/s²
+decaying), so the friction budget is partially consumed, and the ramp's peak 5.65 m/s²
+longitudinal demand temporarily exceeds the *remaining* budget. The tire chirps even
+though the launch (zero lateral load) was clean. The profile is fine; the *start
+condition* was wrong.
+
+FIX (took 1 day)
+In v2.7's usage, ramp start is gated on "steering straight AND a 100 ms settle delay."
+The profile itself stays as-is; the *scheduler* (in this case, the test driver) adds the
+dwell. The deeper adaptive fix (couple ramp to live steering/lateral state) is deferred
+(5.6) — and this error is the strongest argument that the deferred work is real, not
+optional.
+
+---
+
+E0045 | v2.7 | SMALL | Found Day 28 | Fixed in 22 days | the design review
+File : s_curve_ramp.py
+Error : design rejected: Alternative A — Extend the linear ramp to 1.0 s and use 1-unit steps
+Terminal : the design review
+
+WHAT HAPPENED
+Take the v2.0 staircase but make it finer: `for i in range(0, 101): drive(i);
+time.sleep(0.01)`. Analysis: this *reduces* per-step amplitude from 10 units to 1 unit
+(0.018 m/s per sample), and we honestly believed for about an hour that this alone would
+kill the chirp. It did not — see Section 9, E1. Why: each 1-unit edge is still a
+velocity discontinuity; the tire still sees an impulse, just a smaller one. With mu_s
+budget tight, even small impulses at corner exit (C5) slip. Also a 1.0 s ramp doubles
+the distance-to-full-speed to 1.8·1.0/2 = 0.9 m, which on a 2-3 m straight segment eats
+30-45% of the available run-up before a corner. Verdict: reduces but does not eliminate;
+costs track distance. **Rejected — same defect class, worse track economy.**
+
+WHY IT HAPPENED
+**Rejected — same defect class, worse track economy.**
+
+FIX (took 22 days)
+replaced by Alternative C — Sine velocity profile (CHOSEN)
+
+---
+
+E0046 | v2.7 | SMALL | Found Day 28 | Fixed in 22 days | the design review
+File : s_curve_ramp.py
+Error : design rejected: Alternative B — Step-count reduction (fewer, bigger steps)
+Terminal : the design review
+
+WHAT HAPPENED
+The inverse idea: don't send 50 small packets, send 5 big ones. Analysis: this is
+strictly worse. Bigger steps = bigger jerk impulses, and at 5 steps the "ramp" is barely
+a ramp. It also wastes the link's 100 Hz headroom and makes the watchdog budget less
+useful. Verdict: rejected instantly, listed for completeness so the team remembers *why*
+we never "simplify" a ramp into a table of waypoints. **Rejected — worse on every
+axis.**
+
+WHY IT HAPPENED
+Verdict: rejected instantly, listed for completeness so the team remembers *why* we
+never "simplify" a ramp into a table of waypoints. **Rejected — worse on every axis.**
+
+FIX (took 22 days)
+replaced by Alternative C — Sine velocity profile (CHOSEN)
+
+---
+
+E0047 | v2.7 | SMALL | Found Day 28 | Fixed in 22 days | the design review
+File : s_curve_ramp.py
+Error : design rejected: Alternative D — Smoothstep polynomial v = v_max·(3u² − 2u³), u = t/T
+Terminal : the design review
+
+WHAT HAPPENED
+The Hermite/Perlin-style smoothstep: v(0)=0, v(T)=v_max, and — the selling point —
+a(0)=0 *and* a(T)=0, i.e., acceleration starts from zero, which is strictly better than
+the sine in the first instant. Analysis: peak acceleration of smoothstep is
+(3/2)·v_max/T = 1.5·1.8/0.5 = **5.4 m/s²** (slightly under the sine's 5.65), distance =
+v_max·T/2 = 0.45 m (27% *less* than the sine — smoothstep spends more time slow). Both
+profiles meet R1. Why did we not choose it? Two reasons, honestly weighed. First, the
+failure we were fixing was the *velocity step*; the sine already eliminates it, and the
+first-sample jerk of the sine is *zero* (j(0)=0) — so the sine is not actually worse at
+launch. Second, smoothstep at the cruise join has a jerk discontinuity too (accel goes
+0→0 but jerk snaps), same as sine, so there is no theoretical win at t=T. The real
+difference is only the first 5 ms of the ramp, which the motor's inductance smooths
+anyway. Verdict: equivalent for our purpose, sine chosen for simplicity and because
+`math.sin` reads as obviously periodic/correct to the whole team. **Not rejected for
+being wrong — rejected for being not-better.**
+
+WHY IT HAPPENED
+First, the failure we were fixing was the *velocity step*; the sine already eliminates
+it, and the first-sample jerk of the sine is *zero* (j(0)=0) — so the sine is not
+actually worse at launch. **Not rejected for being wrong — rejected for being
+not-better.**
+
+FIX (took 22 days)
+replaced by Alternative C — Sine velocity profile (CHOSEN)
+
+---
+
+E0048 | v2.7 | SMALL | Found Day 28 | Fixed in 22 days | the design review
+File : s_curve_ramp.py
+Error : design rejected: Alternative F — Do nothing; keep the staircase (status quo)
+Terminal : the design review
+
+WHAT HAPPENED
+The null option. Analysis: violates R4 outright; we already had the evidence (chirp
+persists through v2.0's ramp, v2.6's stop at 8.1 m/s² is friction-edge). The only
+argument for it is "it mostly works and we're short on time" — and that argument fails
+the moment odometry-based localization arrives (v5.x): slip is *silent* to the camera
+and IMU unless you look for it, and the UKF will happily fuse a false heading rate.
+**Rejected.**
+
+WHY IT HAPPENED
+The only argument for it is "it mostly works and we're short on time" — and that
+argument fails the moment odometry-based localization arrives (v5.x): slip is *silent*
+to the camera and IMU unless you look for it, and the UKF will happily fuse a false
+heading rate. **Rejected.**
+
+FIX (took 22 days)
+replaced by Alternative C — Sine velocity profile (CHOSEN)
+
+---
+
+## v2.8 - V2.8 (Day 52)
+
+TOTAL ERROR : 5
+SMALL : 4
+BIG : 1
+
+E0049 | v2.8 | BIG | Found Day 52 | Fixed in 1 day | with an early event-based version of the harness
+File : keyboard_drive.py
+Error : cmd(0,60)
+Terminal : with an early event-based version of the harness
+
+WHAT HAPPENED
+On Day 52, with an early event-based version of the harness (A4), we held 'a' to make a
+left turn and the robot did not glide around the arc we expected. It *stuttered*: a
+sequence of lurches, roughly three to four visible surges per second, each accompanied
+by a faint chirp from the drive wheels — the same chirp v2.7 had just eliminated from
+scripted motion. Holding 'w' forward, the robot surged forward in a stop-and-go rhythm
+instead of rolling. Releasing the key produced a final jerk as the robot stopped and
+restarted briefly. It looked, honestly, like the robot was being driven by a very
+nervous person pressing and releasing the key at speed. **Initial hypotheses** (in the
+order we guessed them, all wrong): 1. *Servo PWM jitter.* Maybe the MG995 servo was
+hunting around the 25° set-point, physically vibrating the linkage and translating into
+wheel motion. Plausible — the servo is a known mechanical noise source. 2. *Motor PWM
+whine / stiction.* Maybe the motor driver's PWM frequency was interacting with the floor
+friction, causing stick-slip (v2.2 territory). 3. *ESP32 parser dropping packets.* Maybe
+the parser was rejecting every other packet (we knew CRC8 was hardcoded to 0 in the
+harness), so the motor PWM was being refreshed only intermittently. 4. *Terminal
+buffering.* Maybe cbreak wasn't actually engaged and something was buffering our input
+into bursts.
+
+WHY IT HAPPENED
+The event-based input library we used in the A4 prototype delivered **edge events**:
+`key down` (send go) and `key up` (send stop). The terminal, meanwhile, generates a
+*held* key as a burst of **repeat down-events** at the typematic rate — but our library
+was synthesising the up-events itself, and our mapping translated each down/up pair into
+go/stop. A single one-second hold therefore produced, after the initial 500 ms delay,
+roughly 15 go/stop cycles. Mechanically: the motor got a square-wave PWM duty (60, then
+0, at ~15 Hz alternation because each repeat cycle contained both an up and a down), and
+the servo got a set-point square wave at the same frequency. Neither the motor (rotor
+inertia, load) nor the servo (gear train, 4WS linkage stiffness, ~170 ms transit time)
+could smooth a command that changed state 15 times per second; the chassis rode the
+transients. The wheel chirp was the drive wheels breaking static friction on each
+restart — precisely the slip v2.7's S-curve had been designed to prevent. In short:
+**edge-triggered command mapping turns a held key into a square-wave generator, and a
+4WS linkage with a single rigid servo cannot filter it.** The a set-point that flips
+every 33 ms has a fundamental at ~15 Hz (the alternating cycle), squarely inside the
+mechanical pass-band of the actuator/chassis plant.
+
+INVESTIGATION (only for BIG errors)
+We stopped hypothesising and instrumented. We added a counter on the ESP32's serial ISR
+that incremented on every received valid packet and printed the count to a second serial
+line at 1 Hz (the ESP32 has a USB-to-UART port we could watch with a second terminal).
+Then we held 'w' for five seconds and logged packet arrival times. The pattern was
+unambiguous: - For the first ~500 ms: packets arrived at a burst. - Then: packets
+arrived in a regular rhythm with **~33 ms period** (the typematic rate) — but
+critically, with the early event-based design, the packets were **not all the same**.
+They alternated `cmd(0,60)` and `cmd(0,0)` in a repeating two-cycle: go, stop, go, stop,
+at ~30 Hz. We also checked the servo position during a hold using the phone camera in
+slow motion (240 fps). The linkage was oscillating with an amplitude of maybe 3–4° at
+roughly 15 Hz, and the motor was audibly cycling. Hypothesis 1 (servo jitter) was the
+*symptom*, not the cause: the servo was oscillating *because* it was being commanded to
+jump between 25° and 0° thirty times per second; the MG995 has a transit time of
+~150–170 ms across a large sweep, so it could barely track a 30 Hz command square wave
+and physically shuddered. Hypothesis 3 was partially true — but the "drops" were
+actually *intentional* stop commands, not parser rejections; the CRC0 byte was not
+causing any drops at all. We confirmed by replaying a pure
+`cmd(0,60),cmd(0,60),cmd(0,60)` stream: no jerk.
+
+FIX (took 1 day)
+Rewrite the input handling to be **level-triggered state polling**, which is exactly
+what the snapshot does. Delete every notion of "up" event from the code. `read(1)`
+returns a character; a held key returns the *same* character repeatedly; we map *each
+character* to a *complete, self-contained command*; there is no release event anywhere
+in the program, so the ESP32 can never see a go/stop alternation unless the operator
+genuinely alternates keys. The command stream for a held 'a' is `cmd(25,30), cmd(25,30),
+cmd(25,30), …` every 33 ms — a flat set-point. The motor sees a constant PWM duty, the
+servo sweeps once to 25° and holds, and the chassis rolls a smooth 1.03 m-radius arc.
+The fix is so small (one loop rewrite) that we were briefly suspicious we had missed
+something; the mechanism is the insight, not the code.
+
+---
+
+E0050 | v2.8 | SMALL | Found Day 52 | Fixed in 1 day | The very first version of the
+File : keyboard_drive.py
+Error : read(1)
+Terminal : The very first version of the
+
+WHAT HAPPENED
+The very first version of the harness — before cbreak — did nothing. We pressed 'w',
+'a', everything; the robot sat still. The loop was running (we could see prints),
+`read(1)` was blocking forever.
+
+WHY IT HAPPENED
+The terminal (and the SSH pty behind it) starts in **canonical mode**: input is
+line-buffered, and `read` returns nothing until a newline (Enter) is received. We had
+`read(1)` asking for one character, but the TTY driver was withholding *all* characters
+until Enter. This is the classic "keys are buffered" behaviour every Unix programmer
+hits eventually — and it is doubly likely to surprise on a headless Pi where the only
+human interface is SSH. Mechanism: the line-discipline layer of the pty, not our code,
+was the bottleneck.
+
+FIX (took 1 day)
+`tty.setcbreak(sys.stdin)` — switch the pty to raw character mode so every keypress is
+delivered immediately, one byte per `read(1)`, no echo, no line buffering. One line,
+fixed. (The `termios.tcgetattr`/`tcsetattr` pair around it makes the change reversible,
+which is the hygiene half of the fix.)
+
+---
+
+E0051 | v2.8 | SMALL | Found Day 52 | Fixed in 1 day | In the A4 prototype we briefly
+File : keyboard_drive.py
+Error : read(1)
+Terminal : In the A4 prototype we briefly
+
+WHAT HAPPENED
+In the A4 prototype we briefly mapped the arrow keys. Pressing Arrow-Up produced two or
+three jerks instead of a smooth forward. **Initial hypothesis.** The mapping table was
+wrong — maybe the arrow key constant was off.
+
+WHY IT HAPPENED
+Arrow keys are multi-byte **escape sequences**, and a raw `read(1)` char stream cannot
+know where one sequence ends and the next begins without an escape-state machine. Mixing
+multi-byte keys into a per-character mapper is a correctness hazard by construction.
+
+FIX (took 1 day)
+Drop arrows entirely; use single-byte letters WASD. (For the record, `q` — the quit key
+— is also a single byte, which is why it needs no special handling either.)
+
+---
+
+E0052 | v2.8 | SMALL | Found Day 52 | Fixed in 1 day | ) and the sequence counter never advanced.
+File : keyboard_drive.py
+Error : PacketEncoder
+Terminal : ) and the sequence counter never advanced.
+
+WHAT HAPPENED
+None observed — the robot behaved as commanded in every test. But we *knew* the packets
+did not contain valid CRC8 (true values 0x94/0xA4/0x60/ 0x8C for the four commands,
+computed on Day 52) and the sequence counter never advanced.
+
+WHY IT HAPPENED
+Deliberate minimalism. The v2.3 `PacketEncoder` with real CRC8 and a sequence counter
+existed, but we chose to inline the ten bytes to keep the harness dependency-free and
+obviously-readable. The ESP32 parser of the v2.x era evidently validated header/footer
+and structure rather than the CRC byte, so the harness "worked". That is exactly the
+kind of thing that works until the radio link, the wall, or a line of solder carries a
+bit-flip.
+
+FIX (took 1 day)
+Deferred to v2.9, which was already planned. (v2.9's CHANGE.md records the fix: raise TX
+rate to 100 Hz with a sequence counter so stale packets are ignored — the direct
+repayment of this debt.)
+
+---
+
+E0053 | v2.8 | SMALL | Found Day 52 | Fixed in 1 day | SSH
+File : keyboard_drive.py
+Error : tcsetattr
+Terminal : SSH
+
+WHAT HAPPENED
+During one early debugging session (A4), we Ctrl-C'd out of the harness without the
+terminal restore, and the SSH shell was left in cbreak mode: no echo, no line editing,
+Enter doing nothing. The team's first reaction was "the Pi's terminal is broken."
+
+WHY IT HAPPENED
+The first version had the `tcsetattr` restore at the end of the happy path only; an
+interrupt bypassed it. The TTY discipline is a shared resource — when a process dies
+mid-cbreak, its attributes persist.
+
+FIX (took 1 day)
+Wrap the loop in `try/finally` with `termios.tcsetattr(sys.stdin, termios.TCSADRAIN,
+old)` in the `finally` (the snapshot has this), so both normal exit *and* interrupts
+restore the terminal. This is why the snapshot's `finally` block exists.
+
+---
+
+## v2.9 - V2.9 (Day 55-56)
+
+TOTAL ERROR : 6
+SMALL : 5
+BIG : 1
+
+E0054 | v2.9 | BIG | Found Day 56 | Fixed in 1 day | SSH
+File : DRIVE_REPORT.md
+Error : ser.write
+Terminal : SSH
+
+WHAT HAPPENED
+On Day 56, during the first high-speed stress laps, the robot occasionally executed a
+hard emergency stop in the *middle* of a tight corner: a clean S-curve launch, a
+steering ramp into the clamp, then — without any command from the script — a sudden
+short-brake stop, servo centring, fault LED flashing. At 1.8 m/s it was a 0.56 m
+uncommitted event with the wheels cranked to full lock, and it sheared a cable tie off
+the servo arm on the second occurrence. Four times in the first ten laps, all in turns,
+none in straights. **Initial hypotheses** (in the order we guessed them, all
+incomplete): 1. *EMI on the USB link.* The MG995 servo draws commutation current right
+next to the signal pair; maybe the CRC byte (still hardcoded 0 at this point in the
+first pass) was being bit-flipped into a reject. Plausible — v2.3 was built specifically
+against EMI. 2. *The Pi scheduler stalling the script.* Python GC or an SSH burst
+pausing the loop long enough to starve the watchdog. 3. *The parser dropping frames
+under load.* At 100 Hz for the first time in the phase, maybe the length-counted state
+machine lost sync.
+
+WHY IT HAPPENED
+The stress driver, in its first version, was written in the v2.5 style: it sent a
+command when the plan *changed*, and then silently waited. During the tight turn — the
+longest single segment in the lap, a full circle at 0.54 m/s taking about 5.8 s — the
+script sent *one* packet at segment start and then went quiet, because nothing had
+changed. Then one ordinary event — a Python GC pass, or a USB-SCHED hiccup on the Pi —
+delayed the *next* segment's packet past the 200 ms mark, and the watchdog fired
+mid-circle. Why "at high speed"? Because high speed is where the turns are longest and
+where a stop is most catastrophic, and because at 1.8 m/s the 200 ms window is 0.36 m of
+travel. The "dropped packets" of the original CHANGE.md were not dropped on the wire at
+all; they were **never sent**, because the sender was event-driven and the event was
+rare. The deeper truth surfaced the same evening: **v2.5's "lap stretched 15%" had never
+been a time-sleep drift problem.** It was this same watchdog, firing at every silent
+segment boundary, stopping the robot and letting it re-ramp. We had misdiagnosed v2.5 on
+Day 45 and shipped the absolute-clock fix as the "correct" lesson when the real defect
+was silent segments. v2.9 did not invent a new bug; it finally understood an old one.
+
+INVESTIGATION (only for BIG errors)
+We extended the ESP32 diagnostic to log the inter-arrival gap of the last *accepted*
+packet and the fault reason, and re-ran the failing lap ten times with the 240 fps
+camera synced to the fault LED. The gap at the fault instant was 201 ms and climbing —
+the watchdog fired *because the stream had gone silent*, not because of EMI or a CRC
+reject.
+
+FIX (took 1 day)
+Replace event-driven sending with the continuous 100 Hz heartbeat (section 7.3): every
+10 ms the loop recomputes the plan value on the absolute clock and sends it. There are
+no silent segments left — the quietest lap now sends 100 packets per second. The
+watchdog becomes unreachable during healthy operation (a 20:1 slot margin), and the only
+remaining path to a fault is a genuine 200 ms process stall, which is exactly the case
+where the watchdog should fire.
+
+---
+
+E0055 | v2.9 | SMALL | Found Day 56 | Fixed in 1 day | after the heartbeat was in place
+File : DRIVE_REPORT.md
+Error : plan_value
+Terminal : after the heartbeat was in place
+
+WHAT HAPPENED
+Late on Day 56, after the heartbeat was in place, the robot suddenly braked for about
+200 ms in a low-speed warm-up lap, then resumed — no fault LED, no watchdog trip. A
+ghost. Twice in thirty laps, never at high speed, never in a turn.
+
+WHY IT HAPPENED
+The USB-UART kernel ring *delays* in-order bytes; when the Pi stalls and flushes a
+burst, bytes drain in order but late, and a late command is indistinguishable from a
+current one without a sequence check. The machine was applying a stale-but-valid packet
+out of its intended time — exactly the "stale packets" failure the original CHANGE.md
+fix names, and why the fix has two parts: the heartbeat prevents gaps, the sequence
+check prevents stale application.
+
+FIX (took 1 day)
+The section 7.4 freshness check: only a packet with sequence strictly greater than
+`last_seq` is applied; the late EMSTOP is discarded without touching watchdog or
+actuators. Mode `0x02` stays exempt, so a genuine emergency brake is never dropped for
+age. A deliberate replay test (filling the queued buffer and flushing mid-run) confirmed
+the ESP32 discards it and the robot never twitches.
+
+---
+
+E0056 | v2.9 | SMALL | Found Day 56 | Fixed in 1 day | Early in the campaign
+File : DRIVE_REPORT.md
+Error : wheel chirp and servo stall at the hard corner
+Terminal : Early in the campaign
+
+WHAT HAPPENED
+Early in the campaign, entering the tight turn at the steering clamp produced a sharp
+tyre chirp and an audible servo struggle — the same chirp v2.7 had eliminated from
+launch. The first two laps even left faint rubber marks on the tile at the corner entry.
+
+WHY IT HAPPENED
+C7 was violated in our own first plan: we stepped the servo while the vehicle was still
+fast. At 1.8 m/s toward full lock the front tyres exceed lateral grip (~6.48 m/s^2
+demanded on 0.5 m, per C6), scrub, and chirp; the MG995 simultaneously gets a set-point
+step it cannot track in 10 ms and struggles against the load. The tyre was asked to slow
+down and turn hard in the same instant.
+
+FIX (took 1 day)
+Separate the two axes in the plan, per R6 and R7: decelerate first (S-curve down to 0.54
+m/s), then ramp the steering over 200 ms to the clamp, then begin the circle. The order
+in section 7.3 (step 3) reflects this — the steering ramp and the deceleration are
+scheduled as distinct sub-phases, not one event.
+
+---
+
+E0057 | v2.9 | SMALL | Found Day 55 | Fixed in 2 days | the stopwatch said 1.78 m/s and the camera gate said 1.86 m/s on the same run
+File : DRIVE_REPORT.md
+Error : the two speed-measurement methods disagreed (briefly)
+Terminal : the stopwatch said 1.78 m/s and the camera gate said 1.86 m/s on the same run
+
+WHAT HAPPENED
+On Day 55, the stopwatch said 1.78 m/s and the camera gate said 1.86 m/s on the same run
+— a 4.5% disagreement, inside our 5% acceptance tolerance but larger than we liked, and
+worse than the 1.5% we later achieved.
+
+WHY IT HAPPENED
+Human reaction (~250 ms) corrupts gate timing: a slow operator adds ~0.25 s to a 1.111 s
+interval (~22% per press, doubled at two gates). Averaging three operators shrinks it,
+never to camera precision.
+
+FIX (took 2 days)
+The camera gate became the primary speed instrument; the stopwatch is a coarse
+cross-check only. Section 10's speeds are camera-gate values.
+
+---
+
+E0058 | v2.9 | SMALL | Found Day 55 | Fixed in 2 days | prediction from the two-axle bicycle model
+File : DRIVE_REPORT.md
+Error : d_eff = (d_f + d_r)/2
+Terminal : prediction from the two-axle bicycle model
+
+WHAT HAPPENED
+No robot failure — a *paper* failure. Our Day 55 prediction from the two-axle bicycle
+model (C8) said the tightest circle would be ~2.07 m; the robot drew a ~0.5 m chalk
+circle two laps later. Wrong by a factor of four, on paper, in front of the team.
+
+WHY IT HAPPENED
+The two-axle model assumes each axle steers independently and kinematically exactly; a
+rigid drag-link does not deliver that. The average-angle model — `d_eff = (d_f +
+d_r)/2`, `R = L/tan(d_eff)` — matched every measurement, because it treats the whole
+linkage as a single effective steering point, which is what a rigid linkage actually is.
+
+FIX (took 2 days)
+Section 5.5's decision: the average-angle model is the operative kinematic model for
+this chassis, and the textbook derivation is recorded as a dead end with its measurement
+contradiction.
+
+---
+
+E0059 | v2.9 | SMALL | Found Day 55 | Fixed in 2 days | the heartbeat fix
+File : DRIVE_REPORT.md
+Error : the "clean 50 laps" claim almost included the unfixed bug
+Terminal : the heartbeat fix
+
+WHAT HAPPENED
+After the heartbeat fix, laps 11-20 were clean — zero watchdog trips, zero fault LEDs.
+It was tempting to declare the campaign done.
+
+WHY IT HAPPENED
+Confirmation bias: a clean run after a fix looks like success even when the fix was
+cosmetic.
+
+FIX (took 2 days)
+The A/B test plus a written rule: *every claim of "no failure" must be accompanied by a
+demonstration that the failure returns when the fix is removed.* The 50-lap result is
+meaningful only because of that negative test.
+
+---
+
+## THE ENGINEERING DOCUMENTATION
+
+The errors this phase records that come from ENGINEERING_
+DOCUMENTATION.md and ENGINEERING_PARAMETER_JUSTIFICATION.md,
+not from a CHANGE.md chapter. The docs do not log days, so
+Found Day is n/a and FIX carries no day count.
+
+TOTAL ERROR : 5
+SMALL : 4
+BIG : 1
+
+E0060 | v2 | BIG | Found Day n/a | Fixed in n/a | the engineering documentation
+File : layers/layer10_controller.py, main.py
+Error : the serial fault detection could never trigger (FA-2)
+Terminal : the engineering documentation
+
+WHAT HAPPENED
+LED4 (serial health) never turned OFF mid-race and the documented emergency-stop path
+never executed: transmit_command() swallowed its own serial write exceptions and
+silently returned the packet even when the ESP32 was absent or the port had died.
+
+WHY IT HAPPENED
+The 5-fault threshold logic in main.py was unreachable — the failure was logged by layer
+10 and forgotten.
+
+FIX
+transmit_command() now raises IOError when the link is unavailable or a write fails, so
+the fault propagates to the caller and the Pi-side failsafe (LED4 OFF, LED5 stop, retry
+loop) actually runs. The ESP32's independent 200 ms watchdog remains the second layer.
+
+---
+
+E0061 | v2 | SMALL | Found Day n/a | Fixed in n/a | the engineering documentation
+File : utils/serial_protocol.py
+Error : the text serial protocol rejected — the parser ambiguity
+Terminal : the engineering documentation
+
+WHAT HAPPENED
+A text protocol over a 115200 baud USB link was measured and rejected: it would cost
+3-5x more bytes per command and add parser ambiguity.
+
+WHY IT HAPPENED
+The byte cost and parser ambiguity of a text protocol at 100 Hz command rate.
+
+FIX
+Replaced by the 10-byte CRC8 binary packet (utils/serial_protocol.py): 2-byte header,
+1-byte sequence, 1-byte command, 4 bytes of int16 big-endian servo/speed, 1-byte CRC8
+(poly 0x07), 1-byte footer.
+
+---
+
+E0062 | v2 | SMALL | Found Day n/a | Fixed in n/a | the engineering documentation
+File : layers/layer9_kinematics_4ws.py
+Error : the dual-servo steering rejected — the doubled failure modes
+Terminal : the engineering documentation
+
+WHAT HAPPENED
+Dual-servo crab-walk-capable steering was considered and rejected: two independently
+driven steering actuators add ~90 g, a second PWM channel and two calibration drift
+curves.
+
+WHY IT HAPPENED
+A dual-servo system doubles steering failure modes (two jam points, two calibration
+drift curves); the WRO 2026 rubric rewards reliability under time pressure.
+
+FIX
+Single MG995 servo + mechanical linkage (delta_r = -0.85 * delta_f) with the 141 mm
+turning radius from the 4WS decomposition.
+
+---
+
+E0063 | v2 | SMALL | Found Day n/a | Fixed in n/a | the engineering documentation
+File : layers/layer9_kinematics_4ws.py
+Error : the crab-walk rejected — the single-servo mechanical limit
+Terminal : the engineering documentation
+
+WHAT HAPPENED
+Crab-walk (all four wheels steered to the same angle) was measured and rejected for this
+platform: the single-servo linkage enforces delta_r = -k*delta_f, so true crab-walk
+needs dual actuators.
+
+WHY IT HAPPENED
+Mechanical limit of the single-servo linkage, plus the 48.5% radius reduction already
+fits the parking approach arc inside the venue geometry.
+
+FIX
+The parking maneuver is executed as a curvature-reduced approach arc + stop, exploiting
+the 141 mm turning radius — no crab-walk required.
+
+---
+
+E0064 | v2 | SMALL | Found Day n/a | Fixed in n/a | the engineering documentation
+File : layers/layer9_kinematics_4ws.py
+Error : the naive same-angle 4WS split rejected — the tire scrub
+Terminal : the engineering documentation
+
+WHAT HAPPENED
+A naive 'same angle front and rear' steering split was analysed and rejected: both axle
+midpoints cannot share one turning center, producing tire scrub.
+
+WHY IT HAPPENED
+The naive split (delta_r = delta_f) is kinematically impossible to drive — both axle
+midpoints cannot share one turning center.
+
+FIX
+The counter-steered split (delta_r = -k*delta_f, k = 0.85) places the instantaneous
+turning center correctly for the mechanical linkage.
+
+---
