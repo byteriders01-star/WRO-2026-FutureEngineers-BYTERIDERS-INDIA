@@ -57,15 +57,6 @@ Byte Riders is a two-member engineering team built around a clean split between 
        t-photos/happy_patel.jpg
      Filenames are case-sensitive on GitHub. -->
 
-<div align="center">
-
-| Shrut Barasara | Happy Patel |
-|:---:|:---:|
-| <img width="960" height="1280" alt="Shrut Barasara" src="https://github.com/user-attachments/assets/d21bec4c-5d1e-41b7-9e72-61128f5b7a66"/> | <img width="960" height="1280" alt="Happy Patel" src="https://github.com/user-attachments/assets/01f8d001-fef8-4bf8-8a35-8ab29fd71b7d" /> |
-| *Mechanical & Hardware Lead* | *Software & Version Control Engineer* |
-
-</div>
-
 <!-- Add team photo here — see Section 10 for the full photo checklist -->
 
 ---
@@ -269,93 +260,149 @@ Master Mechanical Toggle Switch
 ### 5.6 Hardware Components — Detailed Specifications & Photos
 
 Every major component on the vehicle is documented below with its role in the system, key electrical/mechanical specifications, and a photo slot. Drop the corresponding product photo into `assets/hardware/<component-name>.jpg` and it will render automatically in the cell below (the `<!-- photo -->` markers show exactly where each image belongs).
-
-<table>
-<tr>
-<th width="180">Photo</th>
-<th width="220">Component</th>
-<th>Description &amp; Role in the System</th>
-</tr>
-
-<tr>
-<td><!-- photo: assets/hardware/raspberry_pi_4b.jpg --></td>
-<td><b>Raspberry Pi 4 Model B</b><br>4 GB RAM · ARM Cortex-A72</td>
-<td>The vehicle's high-level "brain." A quad-core, 64-bit ARM Cortex-A72 SoC clocked at 1.5 GHz with 4 GB of LPDDR4 RAM runs the entire perception and decision-making stack — the OpenCV vision pipeline, the 6-DoF Unscented Kalman Filter, the mission-manager state machine, and the Bézier path planner (Layers 1, 3, 4, 6–10 of the software pipeline in <a href="#6-obstacle-management--software--control">Section 6</a>). It streams the resulting steering/speed commands to the ESP32-S3 over USB serial. Chosen over lighter boards specifically for its CSI camera interface and the CPU headroom needed to run HSV segmentation at frame rate without starving the control loop.</td>
-</tr>
-
-<tr>
-<td><!-- photo: assets/hardware/esp32_s3.jpg --></td>
-<td><b>ESP32-S3 DevKitC</b><br>Dual-core 240 MHz · Wi-Fi + BT</td>
-<td>The vehicle's real-time "spinal cord." A dual-core Xtensa LX7 microcontroller running at 240 MHz, dedicated entirely to deterministic actuation — driving the MG995 steering servo and the L298N motor driver via hardware LEDC PWM. Receiving commands from the Pi as 10-byte, CRC8-checked binary packets at 100 Hz, it guarantees the steering/motor loop never stalls or jitters even if the vision pipeline momentarily lags, decoupling "thinking" from "acting."</td>
-</tr>
-
-<tr>
-<td><!-- photo: assets/hardware/pi_camera_v2.jpg --></td>
-<td><b>Pi Camera v2</b><br>Sony IMX219 · 8 MP · CSI</td>
-<td>The vehicle's only forward-facing vision sensor, connected to the Raspberry Pi via the CSI ribbon interface for low-latency, uncompressed frame capture. Its 8 MP Sony IMX219 sensor feeds the OpenCV HSV-thresholding pipeline that identifies red/green traffic pillars and the magenta parking-block marker, forming the entire basis of Obstacle Challenge perception.</td>
-</tr>
-
-<tr>
-<td><!-- photo: assets/hardware/vl53l1x.jpg --></td>
-<td><b>VL53L1X ToF Sensor</b><br>Front distance · 0–4000 mm</td>
-<td>A long-range Time-of-Flight laser-ranging sensor mounted facing forward (I²C address <code>0x30</code>, <code>XSHUT</code> on GPIO 22). Its extended 4-metre range makes it well suited to detecting the front wall or an approaching obstacle pillar early enough for the path planner to react smoothly rather than reactively.</td>
-</tr>
-
-<tr>
-<td><!-- photo: assets/hardware/vl53l0x.jpg --></td>
-<td><b>VL53L0X ToF Sensors (×2)</b><br>Left/Right distance · 0–2000 mm</td>
-<td>A pair of shorter-range ToF sensors mounted on the left and right flanks (I²C addresses <code>0x31</code>/<code>0x32</code>, <code>XSHUT</code> on GPIO 17/27). They continuously measure clearance to the inner and outer arena walls, feeding the wall-following logic that keeps the vehicle centred in its lane between camera-based corrections.</td>
-</tr>
-
-<tr>
-<td><!-- photo: assets/hardware/mpu6050.jpg --></td>
-<td><b>MPU6050 IMU</b><br>6-DoF gyro + accelerometer · I²C 0x68</td>
-<td>A 6-degree-of-freedom inertial measurement unit combining a 3-axis gyroscope and a 3-axis accelerometer on a single die. Its yaw-rate output is fused into the 6-state Unscented Kalman Filter (Layer 3) to correct for heading drift between camera updates and to execute clean, repeatable turns — critical since the raw gyro alone drifts roughly 5°/minute due to thermal bias (see <a href="#15-engineering-post-mortem--what-went-wrong--fixes">Section 15</a>).</td>
-</tr>
-
-<tr>
-<td><!-- photo: assets/hardware/mg995_servo.jpg --></td>
-<td><b>MG995 Servo</b><br>11 kg·cm torque · 50 Hz PWM</td>
-<td>A metal-gear standard servo driving the 4-Wheel-Steering linkage on both axles simultaneously through the mechanical bellcrank assembly. Delivering 11 kg·cm of torque at its dedicated 6 V rail (versus only 8.5 kg·cm at 4.8 V — a 29% torque loss), it easily overcomes steering-linkage friction at the full ±35° lock without stalling.</td>
-</tr>
-
-<tr>
-<td><!-- photo: assets/hardware/johnson_dc_motor.jpg --></td>
-<td><b>Johnson DC Motor</b><br>20:1 planetary · 12 V · 600 RPM (armature)</td>
-<td>A brushed DC motor with an internal 20:1 planetary gearhead, providing the sole source of propulsion. Its output shaft (300 RPM, 0.85 Nm stall torque) drives the custom 3D-printed differential (see <a href="#42-drivetrain--differential-gear-kinematic-derivation">Section 4.2</a>) through a 2:1 bevel gear reduction, yielding a 40:1 total drive ratio and a calculated 4.39× torque safety margin over the vehicle's own weight.</td>
-</tr>
-
-<tr>
-<td><!-- photo: assets/hardware/l298n_driver.jpg --></td>
-<td><b>L298N Motor Driver</b><br>2 A continuous · 12 V dual H-bridge</td>
-<td>A dual H-bridge module that converts the ESP32-S3's low-current PWM/direction signals (<code>ENA</code>/<code>IN1</code>/<code>IN2</code> on GPIO 19–21) into the high-current drive needed by the Johnson DC motor, sourcing its motor-plane power directly from the fused 11.1 V battery rail rather than a regulated supply.</td>
-</tr>
-
-<tr>
-<td><!-- photo: assets/hardware/lipo_battery.jpg --></td>
-<td><b>3S LiPo Battery</b><br>11.1 V · 2200 mAh · 25C</td>
-<td>The vehicle's sole power source — a 3-cell lithium-polymer pack storing 24.42 Wh. 3S (11.1 V) was chosen over 2S (7.4 V) specifically to absorb the ~2 V forward drop across the L298N's internal Darlington transistors without starving the motor of voltage (see <a href="#55-battery-capacity--why-factors-for-electronics-selection">Section 5.5</a>), and 2200 mAh was chosen over larger capacities purely to stay under the competition's 1500 g weight limit.</td>
-</tr>
-
-<tr>
-<td><!-- photo: assets/hardware/buck_converter.jpg --></td>
-<td><b>Buck Converters A &amp; B</b><br>5 V/3 A (logic) · 6 V/3 A (servo)</td>
-<td>Two independent switching step-down regulators isolate the electrically noisy motor/servo loads from the sensitive compute hardware. Buck A supplies a clean, dedicated 5 V "Logic Plane" to the Raspberry Pi and ESP32-S3; Buck B supplies a separate 6 V "Actuator Plane" exclusively to the MG995 servo. Splitting these rails eliminated the inductive voltage transients that were previously triggering Raspberry Pi under-voltage brownouts when the servo shared the Pi's own 5 V supply.</td>
-</tr>
-
-<tr>
-<td><!-- photo: assets/hardware/blade_fuse.jpg --></td>
-<td><b>10A Blade Fuse</b><br>Automotive ATO standard</td>
-<td>A resettable-holder automotive-grade fuse placed directly after the battery's positive terminal, ahead of the master toggle switch. It protects the entire electrical system — battery, converters, driver, and both compute boards — against a short circuit or driver fault, sized to trip safely above the 3.85 A peak system draw but well below the battery's damage threshold.</td>
-</tr>
-
+<table border="1" cellpadding="10" cellspacing="0">
+  <thead>
+    <tr bgcolor="#0d1117" align="center">
+      <th width="15%">Photo</th>
+      <th width="25%">Component</th>
+      <th width="60%">Description & Role in the System</th>
+    </tr>
+  </thead>
+  <tbody>
+    <!-- Row 1: Raspberry Pi -->
+    <tr>
+      <td align="center" valign="middle">
+        <img src="DOCS/FINAL_COMPONENTS%20USED/rasberry%20pi.png" width="100" alt="Raspberry Pi 4">
+      </td>
+      <td>
+        <strong>Raspberry Pi 4 Model B</strong><br>
+        <font color="#8b949e">4 GB RAM · ARM Cortex-A72</font>
+      </td>
+      <td>The vehicle's high-level "brain." A quad-core, 64-bit ARM Cortex-A72 SoC clocked at 1.5 GHz with 4 GB of LPDDR4 RAM runs the entire perception and decision-making stack — the OpenCV vision pipeline, the 6-DoF Unscented Kalman Filter, the mission-manager state machine, and the Bézier path planner (Layers 1, 3, 4, 6–10 of the software pipeline in Section 6). It streams the resulting steering/speed commands to the ESP32-S3 over USB serial. Chosen over lighter boards specifically for its CSI camera interface and the CPU headroom needed to run HSV segmentation at frame rate without starving the control loop.</td>
+    </tr>
+    <!-- Row 2: ESP32-S3 -->
+    <tr>
+      <td align="center" valign="middle">
+        <img src="DOCS/FINAL_COMPONENTS%20USED/ESP32-S3.png" width="100" alt="ESP32-S3">
+      </td>
+      <td>
+        <strong>ESP32-S3 DevKitC</strong><br>
+        <font color="#8b949e">Dual-core 240 MHz · Wi-Fi + BT</font>
+      </td>
+      <td>The vehicle's real-time "spinal cord." A dual-core Xtensa LX7 microcontroller running at 240 MHz, dedicated entirely to deterministic actuation — driving the MG995 steering servo and the L298N motor driver via hardware LEDC PWM. Receiving commands from the Pi as 10-byte, CRC8-checked binary packets at 100 Hz, it guarantees the steering/motor loop never stalls or jitters even if the vision pipeline momentarily lags, decoupling "thinking" from "acting."</td>
+    </tr>
+    <!-- Row 3: Pi Camera -->
+    <tr>
+      <td align="center" valign="middle">
+        <img src="DOCS/FINAL_COMPONENTS%20USED/PI-CAMERA%20V2.png" width="100" alt="Pi Camera v2">
+      </td>
+      <td>
+        <strong>Pi Camera v2</strong><br>
+        <font color="#8b949e">Sony IMX219 · 8 MP · CSI</font>
+      </td>
+      <td>The vehicle's only forward-facing vision sensor, connected to the Raspberry Pi via the CSI ribbon interface for low-latency, uncompressed frame capture. Its 8 MP Sony IMX219 sensor feeds the OpenCV HSV-thresholding pipeline that identifies red/green traffic pillars and the magenta parking-block marker, forming the entire basis of Obstacle Challenge perception.</td>
+    </tr>
+    <!-- Row 4: VL53L1X ToF -->
+    <tr>
+      <td align="center" valign="middle">
+        <img src="DOCS/FINAL_COMPONENTS%20USED/VL53L1X%20ToF%20Sensor.png" width="100" alt="VL53L1X ToF">
+      </td>
+      <td>
+        <strong>VL53L1X ToF Sensor</strong><br>
+        <font color="#8b949e">Front distance · 0-4000 mm</font>
+      </td>
+      <td>A long-range Time-of-Flight laser-ranging sensor mounted facing forward (I²C address 0x30, XSHUT on GPIO 22). Its extended 4-metre range makes it well suited to detecting the front wall or an approaching obstacle pillar early enough for the path planner to react smoothly rather than reactively.</td>
+    </tr>
+    <!-- Row 5: VL53L0X ToF -->
+    <tr>
+      <td align="center" valign="middle">
+        <img src="DOCS/FINAL_COMPONENTS%20USED/VL53L0X%20ToF%20Sensors.png" width="100" alt="VL53L0X ToF">
+      </td>
+      <td>
+        <strong>VL53L0X ToF Sensors (×2)</strong><br>
+        <font color="#8b949e">Left/Right distance · 0-2000 mm</font>
+      </td>
+      <td>A pair of shorter-range ToF sensors mounted on the left and right flanks (I²C addresses 0x31 / 0x32, XSHUT on GPIO 17/27). They continuously measure clearance to the inner and outer arena walls, feeding the wall-following logic that keeps the vehicle centred in its lane between camera-based corrections.</td>
+    </tr>
+    <!-- Row 6: MPU6050 IMU -->
+    <tr>
+      <td align="center" valign="middle">
+        <img src="DOCS/FINAL_COMPONENTS%20USED/MPU6050.png" width="100" alt="MPU6050 IMU">
+      </td>
+      <td>
+        <strong>MPU6050 IMU</strong><br>
+        <font color="#8b949e">6-DoF gyro + accelerometer · I²C 0x68</font>
+      </td>
+      <td>A 6-degree-of-freedom inertial measurement unit combining a 3-axis gyroscope and a 3-axis accelerometer on a single die. Its yaw-rate output is fused into the 6-state Unscented Kalman Filter (Layer 3) to correct for heading drift between camera updates and to execute clean, repeatable turns — critical since the raw gyro alone drifts roughly 5°/minute due to thermal bias (see Section 15).</td>
+    </tr>
+    <!-- Row 7: MG995 Servo -->
+    <tr>
+      <td align="center" valign="middle">
+        <img src="DOCS/FINAL_COMPONENTS%20USED/MG995%20Servo.png" width="100" alt="MG995 Servo">
+      </td>
+      <td>
+        <strong>MG995 Servo</strong><br>
+        <font color="#8b949e">11 kg·cm torque · 50 Hz PWM</font>
+      </td>
+      <td>A metal-gear standard servo driving the 4-Wheel-Steering linkage on both axles simultaneously through the mechanical bellcrank assembly. Delivering 11 kg·cm of torque at its dedicated 6 V rail (versus only 8.5 kg·cm at 4.8 V — a 29% torque loss), it easily overcomes steering-linkage friction at the full ±35° lock without stalling.</td>
+    </tr>
+    <!-- Row 8: Johnson DC Motor -->
+    <tr>
+      <td align="center" valign="middle">
+        <img src="DOCS/FINAL_COMPONENTS%20USED/Johnson%20DC%20Motor.png" width="100" alt="Johnson DC Motor">
+      </td>
+      <td>
+        <strong>Johnson DC Motor</strong><br>
+        <font color="#8b949e">20:1 planetary · 12 V · 600 RPM (armature)</font>
+      </td>
+      <td>A brushed DC motor with an internal 20:1 planetary gearhead, providing the sole source of propulsion. Its output shaft (300 RPM, 0.85 N·m stall torque) drives the custom 3D-printed differential (see Section 4.2) through a 2:1 bevel gear reduction, yielding a 40:1 total drive ratio and a calculated 4.39× torque safety margin over the vehicle's own weight.</td>
+    </tr>
+    <!-- Row 9: L298N Motor Driver -->
+    <tr>
+      <td align="center" valign="middle">
+        <img src="DOCS/FINAL_COMPONENTS%20USED/L298N%20Motor%20Driver.png" width="100" alt="L298N Motor Driver">
+      </td>
+      <td>
+        <strong>L298N Motor Driver</strong><br>
+        <font color="#8b949e">2 A continuous · 12 V dual H-bridge</font>
+      </td>
+      <td>A dual H-bridge module that converts the ESP32-S3's low-current PWM/direction signals (ENA / IN1 / IN2 on GPIO 19-21) into the high-current drive needed by the Johnson DC motor, sourcing its motor-plane power directly from the fused 11.1 V battery rail rather than a regulated supply.</td>
+    </tr>
+    <!-- Row 10: 3S LiPo Battery -->
+    <tr>
+      <td align="center" valign="middle">
+        <img src="YOUR_IMAGE_URL" width="100" alt="3S LiPo Battery">
+      </td>
+      <td>
+        <strong>3S LiPo Battery</strong><br>
+        <font color="#8b949e">11.1 V · 2200 mAh · 25C</font>
+      </td>
+      <td>The vehicle's sole power source — a 3-cell lithium-polymer pack storing 24.42 Wh. 3S (11.1 V) was chosen over 2S (7.4 V) specifically to absorb the ~2 V forward drop across the L298N's internal Darlington transistors without starving the motor of voltage (see Section 5.5), and 2200 mAh was chosen over larger capacities purely to stay under the competition's 1500 g weight limit.</td>
+    </tr>
+    <!-- Row 11: Buck Converters -->
+    <tr>
+      <td align="center" valign="middle">
+        <img src="DOCS/FINAL_COMPONENTS%20USED/Buck%20Converters%20A%20&%20B.png" width="100" alt="Buck Converters">
+      </td>
+      <td>
+        <strong>Buck Converters A & B</strong><br>
+        <font color="#8b949e">5 V/3 A (logic) · 6 V/3 A (servo)</font>
+      </td>
+      <td>Two independent switching step-down regulators isolate the electrically noisy motor/servo loads from the sensitive compute hardware. Buck A supplies a clean, dedicated 5 V "Logic Plane" to the Raspberry Pi and ESP32-S3; Buck B supplies a separate 6 V "Actuator Plane" exclusively to the MG995 servo. Splitting these rails eliminated the inductive voltage transients that were previously triggering Raspberry Pi under-voltage brownouts when the servo shared the Pi's own 5 V supply.</td>
+    </tr>
+    <!-- Row 12: 10A Blade Fuse -->
+    <tr>
+      <td align="center" valign="middle">
+        <img src="DOCS/FINAL_COMPONENTS%20USED/10A%20Blade%20Fuse.png" width="100" alt="10A Blade Fuse">
+      </td>
+      <td>
+        <strong>10A Blade Fuse</strong><br>
+        <font color="#8b949e">Automotive ATO standard</font>
+      </td>
+      <td>A resettable-holder automotive-grade fuse placed directly after the battery's positive terminal, ahead of the master toggle switch. It protects the entire electrical system — battery, converters, driver, and both compute boards — against a short circuit or driver fault, sized to trip safely above the 3.85 A peak system draw but well below the battery's damage threshold.</td>
+    </tr>
+  </tbody>
 </table>
-
-*Full specification reference table (as compiled during hardware selection):*
-
-<p align="center">
-<img src="./assets/hardware/component_spec_table.png" alt="Component specification reference table" width="520"/>
-</p>
 
 ### 5.7 Wiring & Power Schematic Diagram
 
