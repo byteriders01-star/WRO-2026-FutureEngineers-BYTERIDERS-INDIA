@@ -1,7 +1,7 @@
 
 <div align="center">
 
-<img src=""C:\Users\happy patel\OneDrive\Desktop\WRO-2026-FutureEngineers-BYTERIDERS-INDIA\BRANDING\logo_after_4WS.jpg" " alt="Byte Riders Logo" width="260"/>
+<img src= ""C:\Users\happy patel\OneDrive\Desktop\WRO-2026-FutureEngineers-BYTERIDERS-INDIA\BRANDING\logo_after_4WS.jpg"" " alt="Byte Riders Logo" width="260"/>
 
 # 🤖 WRO 2026 – Future Engineers
 # Team **BYTE RIDERS**
