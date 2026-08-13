@@ -371,7 +371,7 @@ Every major component on the vehicle is documented below with its role in the sy
     <!-- Row 10: 3S LiPo Battery -->
     <tr>
       <td align="center" valign="middle">
-        <img src="YOUR_IMAGE_URL" width="100" alt="3S LiPo Battery">
+        <img src="DOCS/FINAL_COMPONENTS%20USED/3S%20LiPo%20Battery.png" width="100" alt="3S LiPo Battery">
       </td>
       <td>
         <strong>3S LiPo Battery</strong><br>
