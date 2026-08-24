@@ -40,24 +40,56 @@
 
 ## 1. Team Introduction
 
-**Team Name:** Byte Riders
+**Team Name:** Byte Riders  
 **Competition:** World Robot Olympiad 2026, Future Engineers Category
 
-Byte Riders is a two-member engineering team built around a clean split between mechanical and software ownership, developing a fully autonomous, self-driving vehicle for the WRO Future Engineers category. The team's approach centers on a 4-wheel-steering mechanical platform paired with a dual-controller electronics stack — a Raspberry Pi 4B for high-level perception and decision-making, and a dedicated ESP32-S3 for deterministic, real-time actuation — so that vision processing never compromises steering or motor response time.
+Byte Riders is a two-member engineering team built around a clean split between mechanical and software ownership, developing a fully autonomous, self-driving vehicle for the WRO Future Engineers category. The team's approach centers on a 4-wheel-steering mechanical platform paired with a dual-controller electronics stack — a Raspberry Pi 4B for high-level perception and decision-making, and a dedicated ESP32-S3 for deterministic, real-time actuation.
 
-| Photo | Name | Role | Responsibilities |
-|---|---|---|---|
-| <img width="2854" height="3706" alt="shrut" src="https://github.com/user-attachments/assets/d21bec4c-5d1e-41b7-9e72-61128f5b7a66" /> | **Shrut Barasara** | Mechanical & Hardware Lead | Chassis design, 4-wheel steering geometry, sensor mounting, wiring, power distribution |
-| <img width="960" height="1280" alt="happy" src="https://github.com/user-attachments/assets/01f8d001-fef8-4bf8-8a35-8ab29fd71b7d" /> | **Happy Patel** | Software & Version Control Engineer | Embedded firmware (ESP32-S3), vision pipeline (OpenCV), Git/GitHub workflow, repository management |
-| <!-- photo: t-photos/brijesh_kundaliya.jpg --> | **Brijesh Kundaliya** | Coach | Technical mentorship, engineering review, and competition-readiness guidance |
+---
 
-<!-- Contestant photos are loaded from t-photos/. Commit the two image files with these exact
-     filenames so they render on GitHub:
-       t-photos/shrut_barasara.jpg
-       t-photos/happy_patel.jpg
-     Filenames are case-sensitive on GitHub. -->
+<h3 align="center">👨‍💻 Meet the Team</h3>
 
-<!-- Add team photo here — see Section 10 for the full photo checklist -->
+<table align="center">
+<tr>
+
+<td align="center" width="33%">
+
+<img src="https://github.com/user-attachments/assets/d21bec4c-5d1e-41b7-9e72-61128f5b7a66" width="300" alt="Shrut Barasara">
+
+### Shrut Barasara
+
+**Mechanical & Hardware Lead**
+
+Chassis design, 4-wheel steering geometry, sensor mounting, wiring, and power distribution.
+
+</td>
+
+<td align="center" width="33%">
+
+<img src="https://github.com/user-attachments/assets/01f8d001-fef8-4bf8-8a35-8ab29fd71b7d" width="300" alt="Happy Patel">
+
+### Happy Patel
+
+**Software & Version Control Engineer**
+
+Embedded firmware, ESP32-S3 programming, OpenCV vision pipeline, Git/GitHub workflow, and repository management.
+
+</td>
+
+<td align="center" width="33%">
+
+<img src="https://github.com/user-attachments/assets/f87b31eb-6b12-4b34-a412-93f213edb491" width="300" alt="Brijesh Kundaliya">
+
+### Brijesh Kundaliya
+
+**Coach & Mentor**
+
+Technical mentorship, engineering review, design guidance, and competition-readiness support.
+
+</td>
+
+</tr>
+</table>
 
 ---
 
@@ -554,28 +586,80 @@ graph TD
 <!-- Replace the # placeholder datasheet links with real manufacturer PDF URLs. -->
 
 ---
+## 10. Vehicle Photos and Team photos
+### 👥 Meet Team BYTE RIDERS
 
-## 10. Vehicle Photos
+<p align="center">
+  <img src="./t-photos/teampic--1.png" alt="Team BYTE RIDERS - Photo 1" width="350">
+  &nbsp;&nbsp;
+  <img src="./t-photos/teampic--2.png" alt="Team BYTE RIDERS - Photo 2" width="350">
+</p>
 
-| Front | Back | Left |
-|---|---|---|
-| <!-- photo --> | <!-- photo --> | <!-- photo --> |
+<p align="center">
+  <b>Team BYTE RIDERS</b><br>
+  <i>Designing, building, and programming an autonomous robot for the WRO 2026 Future Engineers Category.</i>
+</p>
+<p align="center">
+  <b>BYTE RIDERS Autonomous Robot</b><br>
+  <i>WRO 2026 – Future Engineers Category</i>
+</p>
 
-| Right | Top | Bottom |
-|---|---|---|
-| <!-- photo --> | <!-- photo --> | <!-- photo --> |
+<table align="center">
 
+<tr>
+<td align="center">
+<img src="./ROBOT-PHOTOS/r-photos/back--r-1.png" width="300" alt="Robot Rear View 1"><br><br>
+<b>Rear View</b><br>
+<sub>Rear view of the autonomous robot and drivetrain assembly.</sub>
+</td>
+
+<td align="center">
+<img src="./ROBOT-PHOTOS/r-photos/back--r-2.png" width="300" alt="Robot Rear View 2"><br><br>
+<b>Rear Electronics View</b><br>
+<sub>Detailed view of the robot's rear structure and electronics.</sub>
+</td>
+</tr>
+
+<tr>
+<td align="center">
+<img src="./ROBOT-PHOTOS/r-photos/bottom-r-1.png" width="300" alt="Robot Bottom View"><br><br>
+<b>Bottom View</b><br>
+<sub>Bottom view showing the chassis and mechanical configuration.</sub>
+</td>
+
+<td align="center">
+<img src="./ROBOT-PHOTOS/r-photos/top-r-1.png" width="300" alt="Robot Top View"><br><br>
+<b>Top View</b><br>
+<sub>Top view showing the component and electronics arrangement.</sub>
+</td>
+</tr>
+
+<tr>
+<td align="center">
+<img src="./ROBOT-PHOTOS/r-photos/side-r-1.png" width="300" alt="Robot Side View 1"><br><br>
+<b>Side View</b><br>
+<sub>Side profile of the BYTE RIDERS autonomous robot.</sub>
+</td>
+
+<td align="center">
+<img src="./ROBOT-PHOTOS/r-photos/side-r-2.png" width="300" alt="Robot Side View 2"><br><br>
+<b>Side View – Opposite Angle</b><br>
+<sub>Detailed view of the robot's mechanical and steering structure.</sub>
+</td>
+</tr>
+
+</table>
+
+<p align="center">
+  <b>BYTE RIDERS</b> 🤖<br>
+  <i>Designed and developed for the World Robot Olympiad 2026 – Future Engineers Category.</i>
+</p>
 <!-- Full checklist: 6 vehicle angles, team photo, individual member photos, wiring bay close-up,
      4WS steering close-up, sensor mounting close-up, CAD renders, wiring schematic scan. -->
 
 ---
 
 ## 11. Video Demonstrations
-
-| Challenge | Link |
-|---|---|
-| Open Challenge | — |
-| Obstacle Challenge | — |
 
 Full details and links live in [`video/video.md`](https://youtu.be/L5KGnchQRr0?si=QbbOCd11ulyS-JgA).
 
